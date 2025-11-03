@@ -17,6 +17,7 @@ Sistema profesional de gestión de actividades y entregables para SEDAPAL, desar
 - Tailwind CSS
 - React Router DOM
 - Supabase Client
+- Lucide React Icons
 
 ### Backend
 - Spring Boot 3.2.0
@@ -111,60 +112,75 @@ SEDAPAL/
 │   │   ├── contexts/        # Contextos de React (Auth)
 │   │   ├── lib/             # Librerías y utilidades
 │   │   ├── pages/           # Páginas de la aplicación
+│   │   ├── services/        # Servicios API
 │   │   ├── App.tsx          # Componente principal
 │   │   └── main.tsx         # Punto de entrada
+│   ├── public/assets/       # Imágenes y recursos estáticos
 │   ├── .env                 # Variables de entorno (crear)
 │   └── package.json
 │
-└── sedapal-backend/
-    ├── src/main/java/com/sedapal/
-    │   ├── config/          # Configuraciones (CORS, Security)
-    │   ├── controller/      # Controladores REST
-    │   ├── model/           # Entidades JPA
-    │   ├── repository/      # Repositorios
-    │   ├── service/         # Lógica de negocio
-    │   └── SedapalApplication.java
-    └── pom.xml
+├── sedapal-backend/
+│   ├── src/main/java/com/sedapal/
+│   │   ├── config/          # Configuraciones (CORS, Security)
+│   │   ├── controller/      # Controladores REST
+│   │   ├── model/           # Entidades JPA
+│   │   ├── repository/      # Repositorios
+│   │   ├── service/         # Lógica de negocio
+│   │   └── SedapalApplication.java
+│   └── pom.xml
+│
+└── database/                # Scripts SQL
 ```
 
 ## 🔐 Autenticación
 
-El sistema utiliza Supabase Authentication:
+El sistema utiliza un sistema de roles con autenticación personalizada:
 
-1. Los usuarios deben ser creados en Supabase:
-   - Ve a Authentication → Users en tu proyecto Supabase
-   - Crea usuarios con email y contraseña
+### Roles del Sistema
+- **SuperAdmin**: Acceso completo al sistema
+- **Admin**: Gestión de sistemas asignados
+- **Usuario**: Acceso a actividades asignadas
 
-2. El login se hace desde la interfaz web en `/login`
-
-3. La autenticación es manejada por:
-   - Frontend: Context API + Supabase Client
-   - Backend: JWT tokens (para futuras APIs protegidas)
+### Credenciales de Prueba
+- **SuperAdmin**: `alexanderasa0210@gmail.com` / `72032575`
+- **Admin**: `robinrotten0210@gmail.com` / `AdminCC01`
 
 ## 🎯 Características Implementadas
 
 ### ✅ Frontend
-- [x] Login con validación
-- [x] Autenticación con Supabase
+- [x] Login con validación y visibilidad de contraseña
+- [x] Autenticación con sistema de roles
 - [x] Protección de rutas
-- [x] Dashboard básico
+- [x] Dashboard con gráficos y estadísticas
+- [x] Gestión de sistemas y actividades
 - [x] Diseño responsive con Tailwind
-- [x] Paleta de colores SEDAPAL
+- [x] Mascota SEDAPAL en login
+- [x] Paleta de colores corporativos
 
 ### ✅ Backend
-- [x] Estructura base Spring Boot
+- [x] Estructura completa Spring Boot
 - [x] Configuración de Supabase/PostgreSQL
-- [x] Entidades JPA
+- [x] Entidades JPA con relaciones
+- [x] Sistema de roles y permisos
 - [x] CORS configurado
-- [x] Health check endpoint
+- [x] API REST completa
 
-## 📝 Próximos Pasos
+## 💾 Base de Datos
 
-1. **Crear las tablas en Supabase** para actividades y entregables
-2. **Implementar CRUD** de actividades y entregables
-3. **Agregar roles y permisos** 
-4. **Dashboard con estadísticas** 
-5. **Reportes y exportación** de datos
+### Tablas Principales
+- `tb_usuarios` - Usuarios del sistema (SuperAdmin, Admin, Usuario)
+- `tb_sistemas` - Sistemas de SEDAPAL
+- `tb_actividades` - Actividades por sistema
+- `tb_entregables` - Archivos entregables
+- `tb_admin_sistemas` - Relación Admin-Sistemas
+- `tb_usuario_actividades` - Relación Usuario-Actividades
+- `tb_cambios_fecha` - Historial de cambios
+
+### Scripts de Base de Datos
+Los scripts SQL están disponibles en la carpeta `database/`:
+- `roles_y_relaciones.sql` - Estructura completa de tablas
+- `cleanup_database.sql` - Script de limpieza
+- Scripts de creación de entregables
 
 ## 🔍 Verificar que Todo Funciona
 
@@ -173,7 +189,7 @@ El sistema utiliza Supabase Authentication:
 cd sedapal-frontend
 npm run dev
 ```
-Abre http://localhost:5173 - deberías ver el login
+Abre http://localhost:5173 - deberías ver el login con la mascota
 
 ### Backend
 ```bash
@@ -194,6 +210,7 @@ Para cualquier problema, verifica:
 1. Que las credenciales de Supabase estén correctas
 2. Que los servicios estén corriendo
 3. Que los puertos 5173 y 8080 estén disponibles
+4. Que las tablas existan en la base de datos
 
 ---
 
