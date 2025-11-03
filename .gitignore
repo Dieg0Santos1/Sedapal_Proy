@@ -1,0 +1,22 @@
+# Frontend
+sedapal-frontend/node_modules/
+sedapal-frontend/dist/
+sedapal-frontend/.env
+sedapal-frontend/.env.local
+sedapal-frontend/.DS_Store
+
+# Backend
+sedapal-backend/target/
+sedapal-backend/.mvn/
+sedapal-backend/mvnw
+sedapal-backend/mvnw.cmd
+sedapal-backend/.idea/
+sedapal-backend/*.iml
+sedapal-backend/.DS_Store
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
