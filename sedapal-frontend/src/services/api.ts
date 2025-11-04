@@ -19,6 +19,7 @@ export type Actividad = {
   id_empresa: number | null;
   estado: boolean | null;
   trimestre: number | null;
+  trimestres?: number[] | null; // Array de trimestres seleccionados
   fecha_sustento: string | null;
   evaluacion: 'conforme' | 'pendiente' | 'no conforme' | null;
   estado_actividad: 'pendiente' | 'reprogramado' | 'completado' | null;
@@ -28,6 +29,8 @@ export type ActividadConSistema = Actividad & {
   sistema_abrev?: string;
   entregable_nombre?: string;
   equipo_nombre?: string;
+  gerencia_nombre?: string;
+  gerencia_abrev?: string;
   id_sistema?: number;
   id_equipo?: number;
   id_gerencia?: number;
@@ -39,6 +42,13 @@ export type Equipo = {
   desc_equipo: string;
   nombre_equipo?: string; // Alias para compatibilidad
   id_gerencia?: number;
+  estado?: number;
+};
+
+export type Gerencia = {
+  id_gerencia: number;
+  des_gerencia: string;
+  abrev?: string;
   estado?: number;
 };
 
@@ -77,6 +87,33 @@ export type Entregable = {
   tamaño_archivo?: number;
 };
 
+export type TipoEntregable = {
+  id_entregable: number;
+  nombre_entregables: string; // Nota: el campo en la BD se llama 'nombre_entregables' (plural)
+  estado?: boolean | null;
+};
+
+// ============================================
+// GERENCIAS
+// ============================================
+export const gerenciasService = {
+  // Obtener todas las gerencias activas
+  async getAll(): Promise<Gerencia[]> {
+    const { data, error } = await supabase
+      .from('tb_gerencias')
+      .select('*')
+      .eq('estado', true)
+      .order('id_gerencia', { ascending: true });
+
+    if (error) {
+      console.error('Error al cargar gerencias desde Supabase:', error);
+      throw error;
+    }
+    console.log('Gerencias obtenidas:', data);
+    return data || [];
+  }
+};
+
 // ============================================
 // EQUIPOS
 // ============================================
@@ -96,6 +133,49 @@ export const equiposService = {
     console.log('Datos de equipos desde Supabase (con todos los campos):', data);
     if (data && data.length > 0) {
       console.log('Campos del primer equipo:', Object.keys(data[0]));
+    }
+    return data || [];
+  },
+
+  // Obtener equipos filtrados por gerencia
+  async getByGerencia(idGerencia: number): Promise<Equipo[]> {
+    const { data, error } = await supabase
+      .from('tb_equipos')
+      .select('*')
+      .eq('id_gerencia', idGerencia)
+      .order('id_equipo', { ascending: true });
+
+    if (error) {
+      console.error('Error al cargar equipos por gerencia:', error);
+      throw error;
+    }
+    return data || [];
+  }
+};
+
+// ============================================
+// TIPOS DE ENTREGABLES
+// ============================================
+export const tiposEntregablesService = {
+  // Obtener todos los tipos de entregables
+  async getAll(): Promise<TipoEntregable[]> {
+    const { data, error } = await supabase
+      .from('entregables')
+      .select('*')
+      .order('id_entregable', { ascending: true });
+
+    if (error) {
+      console.error('Error al cargar tipos de entregables:', error);
+      throw error;
+    }
+    console.log('Tipos de entregables obtenidos (RAW):', data);
+    if (data && data.length > 0) {
+      console.log('Primer registro completo:', JSON.stringify(data[0], null, 2));
+      console.log('Campos disponibles en el primer registro:', Object.keys(data[0]));
+      console.log('Valores de cada campo del primer registro:');
+      Object.keys(data[0]).forEach(key => {
+        console.log(`  ${key}: "${data[0][key]}" (tipo: ${typeof data[0][key]})`);
+      });
     }
     return data || [];
   }
@@ -418,12 +498,14 @@ export const actividadesService = {
     nombre_actividad: string;
     id_sistema: number;
     trimestre: number;
+    trimestres?: number[]; // Array de trimestres seleccionados
     estado_actividad: 'pendiente' | 'reprogramado' | 'completado';
     fecha_sustento?: string;
     evaluacion: 'conforme' | 'pendiente' | 'no conforme';
     cod_cat_int?: number;
     id_gerencia?: number;
     id_equipo?: number;
+    id_entregable?: number;
   }): Promise<Actividad> {
     // Primero crear la actividad
     const { data: nuevaActividad, error: errorActividad } = await supabase
@@ -431,10 +513,12 @@ export const actividadesService = {
       .insert([{
         nombre_actividad: actividad.nombre_actividad,
         trimestre: actividad.trimestre,
+        trimestres: actividad.trimestres || [actividad.trimestre],
         estado_actividad: actividad.estado_actividad,
         fecha_sustento: actividad.fecha_sustento,
         evaluacion: actividad.evaluacion,
         cod_cat_int: actividad.cod_cat_int || 1,
+        id_entregable: actividad.id_entregable,
         estado: true
       }])
       .select();
@@ -1008,17 +1092,22 @@ export const usuarioActividadesService = {
 
     if (actError) throw actError;
 
-    // Obtener relaciones, sistemas y equipos
+    // Obtener relaciones, sistemas, equipos, gerencias y entregables
     const { data: relacionesData } = await supabase
       .from('tb_as_sis_act')
-      .select('id_actividad, id_sistema, id_equipo')
+      .select('id_actividad, id_sistema, id_equipo, id_gerencia')
       .in('id_actividad', actividadIds);
 
     const { data: sistemasData } = await supabase.from('tb_sistemas').select('id, abrev');
     const { data: equiposData } = await supabase.from('tb_equipos').select('id_equipo, desc_equipo');
+    const { data: gerenciasData } = await supabase.from('tb_gerencias').select('id_gerencia, des_gerencia, abrev');
+    const { data: entregablesData } = await supabase.from('entregables').select('id_entregable, nombre_entregables');
 
     const sistemasMap = new Map((sistemasData || []).map(s => [s.id, s.abrev]));
     const equiposMap = new Map((equiposData || []).map(e => [e.id_equipo, e.desc_equipo]));
+    const gerenciasNombreMap = new Map((gerenciasData || []).map(g => [g.id_gerencia, g.des_gerencia]));
+    const gerenciasAbrevMap = new Map((gerenciasData || []).map((g: any) => [g.id_gerencia, g.abrev]));
+    const entregablesMap = new Map((entregablesData || []).map((e: any) => [e.id_entregable, e.nombre_entregables]));
     const relacionesMap = new Map<number, any>();
     (relacionesData || []).forEach(rel => {
       if (!relacionesMap.has(rel.id_actividad)) {
@@ -1034,6 +1123,9 @@ export const usuarioActividadesService = {
         ...actividad,
         sistema_abrev: relacion ? (sistemasMap.get(relacion.id_sistema) || 'N/A') : 'N/A',
         equipo_nombre: relacion?.id_equipo ? (equiposMap.get(relacion.id_equipo) || 'N/A') : 'N/A',
+        gerencia_nombre: relacion?.id_gerencia ? (gerenciasNombreMap.get(relacion.id_gerencia) || 'N/A') : 'N/A',
+        gerencia_abrev: relacion?.id_gerencia ? (gerenciasAbrevMap.get(relacion.id_gerencia) || 'N/A') : 'N/A',
+        entregable_nombre: actividad.id_entregable ? (entregablesMap.get(actividad.id_entregable) || 'No especificado') : 'No especificado',
         cumplimiento: cumplimientoMap.get(actividad.id_actividad) || 'pendiente',
         id_sistema: relacion?.id_sistema,
         id_equipo: relacion?.id_equipo,
@@ -1135,11 +1227,14 @@ export const adminActividadesService = {
 
     const { data: sistemasData } = await supabase.from('tb_sistemas').select('id, abrev');
     const { data: equiposData } = await supabase.from('tb_equipos').select('id_equipo, desc_equipo');
-    const { data: gerenciasData } = await supabase.from('tb_gerencia').select('id_gerencia, desc_gerencia');
+    const { data: gerenciasData } = await supabase.from('tb_gerencias').select('id_gerencia, des_gerencia, abrev');
+    const { data: entregablesData } = await supabase.from('entregables').select('id_entregable, nombre_entregables');
 
     const sistemasMap = new Map((sistemasData || []).map(s => [s.id, s.abrev]));
     const equiposMap = new Map((equiposData || []).map(e => [e.id_equipo, e.desc_equipo]));
-    const gerenciasMap = new Map((gerenciasData || []).map(g => [g.id_gerencia, g.desc_gerencia]));
+    const gerenciasNombreMap = new Map((gerenciasData || []).map(g => [g.id_gerencia, g.des_gerencia]));
+    const gerenciasAbrevMap = new Map((gerenciasData || []).map((g: any) => [g.id_gerencia, g.abrev]));
+    const entregablesMap = new Map((entregablesData || []).map((e: any) => [e.id_entregable, e.nombre_entregables]));
     const relacionesMap = new Map<number, any>();
     (relacionesData || []).forEach(rel => {
       if (!relacionesMap.has(rel.id_actividad)) {
@@ -1153,7 +1248,9 @@ export const adminActividadesService = {
         ...actividad,
         sistema_abrev: relacion ? (sistemasMap.get(relacion.id_sistema) || 'N/A') : 'N/A',
         equipo_nombre: relacion?.id_equipo ? (equiposMap.get(relacion.id_equipo) || 'N/A') : 'N/A',
-        gerencia_nombre: relacion?.id_gerencia ? (gerenciasMap.get(relacion.id_gerencia) || 'N/A') : 'N/A',
+        gerencia_nombre: relacion?.id_gerencia ? (gerenciasNombreMap.get(relacion.id_gerencia) || 'N/A') : 'N/A',
+        gerencia_abrev: relacion?.id_gerencia ? (gerenciasAbrevMap.get(relacion.id_gerencia) || 'N/A') : 'N/A',
+        entregable_nombre: actividad.id_entregable ? (entregablesMap.get(actividad.id_entregable) || 'No especificado') : 'No especificado',
         id_sistema: relacion?.id_sistema,
         id_equipo: relacion?.id_equipo,
         id_gerencia: relacion?.id_gerencia
@@ -1193,11 +1290,14 @@ export const adminActividadesService = {
 
     const { data: sistemasData } = await supabase.from('tb_sistemas').select('id, abrev');
     const { data: equiposData } = await supabase.from('tb_equipos').select('id_equipo, desc_equipo');
-    const { data: gerenciasData } = await supabase.from('tb_gerencia').select('id_gerencia, desc_gerencia');
+    const { data: gerenciasData } = await supabase.from('tb_gerencias').select('id_gerencia, des_gerencia, abrev');
+    const { data: entregablesData } = await supabase.from('entregables').select('id_entregable, nombre_entregables');
 
     const sistemasMap = new Map((sistemasData || []).map(s => [s.id, s.abrev]));
     const equiposMap = new Map((equiposData || []).map(e => [e.id_equipo, e.desc_equipo]));
-    const gerenciasMap = new Map((gerenciasData || []).map(g => [g.id_gerencia, g.desc_gerencia]));
+    const gerenciasNombreMap = new Map((gerenciasData || []).map(g => [g.id_gerencia, g.des_gerencia]));
+    const gerenciasAbrevMap = new Map((gerenciasData || []).map((g: any) => [g.id_gerencia, g.abrev]));
+    const entregablesMap = new Map((entregablesData || []).map((e: any) => [e.id_entregable, e.nombre_entregables]));
     const relacionesMap = new Map<number, any>();
     (relacionesData || []).forEach(rel => {
       if (!relacionesMap.has(rel.id_actividad)) {
@@ -1211,7 +1311,9 @@ export const adminActividadesService = {
         ...actividad,
         sistema_abrev: relacion ? (sistemasMap.get(relacion.id_sistema) || 'N/A') : 'N/A',
         equipo_nombre: relacion?.id_equipo ? (equiposMap.get(relacion.id_equipo) || 'N/A') : 'N/A',
-        gerencia_nombre: relacion?.id_gerencia ? (gerenciasMap.get(relacion.id_gerencia) || 'N/A') : 'N/A',
+        gerencia_nombre: relacion?.id_gerencia ? (gerenciasNombreMap.get(relacion.id_gerencia) || 'N/A') : 'N/A',
+        gerencia_abrev: relacion?.id_gerencia ? (gerenciasAbrevMap.get(relacion.id_gerencia) || 'N/A') : 'N/A',
+        entregable_nombre: actividad.id_entregable ? (entregablesMap.get(actividad.id_entregable) || 'No especificado') : 'No especificado',
         id_sistema: relacion?.id_sistema,
         id_equipo: relacion?.id_equipo,
         id_gerencia: relacion?.id_gerencia
@@ -1277,10 +1379,10 @@ export const sistemaStatsService = {
     let usuarios: Usuario[] = [];
 
     if (actividadIds.length > 0) {
-      // Obtener asignaciones de usuarios
+      // Obtener asignaciones de usuarios con sus actividades
       const { data: asignaciones } = await supabase
         .from('tb_usuario_actividades')
-        .select('id_usuario')
+        .select('id_usuario, id_actividad')
         .in('id_actividad', actividadIds);
 
       const usuarioIds = Array.from(
@@ -1293,7 +1395,28 @@ export const sistemaStatsService = {
           .select('*')
           .in('id_usuario', usuarioIds);
 
-        usuarios = usuariosData || [];
+        // Para cada usuario, obtener su gerencia y equipo desde sus actividades asignadas
+        const { data: gerenciasData } = await supabase.from('tb_gerencias').select('id_gerencia, des_gerencia, abrev');
+        const { data: equiposData } = await supabase.from('tb_equipos').select('id_equipo, desc_equipo');
+        
+        const gerenciasMap = new Map((gerenciasData || []).map((g: any) => [g.id_gerencia, { nombre: g.des_gerencia, abrev: g.abrev }]));
+        const equiposMap = new Map((equiposData || []).map(e => [e.id_equipo, e.desc_equipo]));
+        
+        // Enriquecer usuarios con gerencia y equipo
+        usuarios = (usuariosData || []).map((usuario: any) => {
+          // Buscar la primera actividad de este usuario para obtener gerencia/equipo
+          const asignacionUsuario = (asignaciones || []).find(a => a.id_usuario === usuario.id_usuario);
+          const actividadUsuario = asignacionUsuario ? actividades.find(a => a.id_actividad === asignacionUsuario.id_actividad) : null;
+          
+          return {
+            ...usuario,
+            gerencia_nombre: actividadUsuario?.gerencia_nombre,
+            gerencia_abrev: actividadUsuario?.gerencia_abrev,
+            equipo_nombre: actividadUsuario?.equipo_nombre,
+            id_gerencia: actividadUsuario?.id_gerencia,
+            id_equipo: actividadUsuario?.id_equipo
+          };
+        });
       }
     }
 
@@ -1303,9 +1426,9 @@ export const sistemaStatsService = {
       cantidad: actividades.filter(a => a.trimestre === trimestre).length
     }));
 
-    // Calcular actividades por estado de evaluación
+    // Calcular actividades por estado_actividad (completado, pendiente, reprogramado)
     const estadosCount = actividades.reduce((acc, act) => {
-      const estado = act.evaluacion || 'pendiente';
+      const estado = act.estado_actividad || 'pendiente';
       acc[estado] = (acc[estado] || 0) + 1;
       return acc;
     }, {} as Record<string, number>);

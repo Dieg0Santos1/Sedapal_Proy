@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { Clock, FileText, Activity, Users, UserPlus } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { actividadesService, sistemasService } from '../services/api';
+import { actividadesService, sistemasService, adminActividadesService } from '../services/api';
 import type { ActividadConSistema, Sistema } from '../services/api';
 import SedapalLogo from '../components/SedapalLogo';
 import MisSistemas from './MisSistemas';
@@ -28,8 +28,11 @@ export default function Dashboard() {
   const loadData = async () => {
     try {
       setLoading(true);
+      // SuperAdmin ve actividades creadas por admins, otros roles ven sus propias actividades
       const [actData, sisData] = await Promise.all([
-        actividadesService.getAll(),
+        user?.rol === 'superadmin' 
+          ? adminActividadesService.getAllActividadesFromAdmins()
+          : actividadesService.getAll(),
         sistemasService.getAll()
       ]);
       setActividades(actData);
@@ -67,13 +70,13 @@ export default function Dashboard() {
     };
   });
 
+  const pendientes = actividades.filter(act => act.estado_actividad === 'pendiente').length;
+  const reprogramadas = actividades.filter(act => act.estado_actividad === 'reprogramado').length;
   const completadas = actividades.filter(act => act.estado_actividad === 'completado').length;
-  const pendientes = actividades.filter(act => 
-    act.estado_actividad === 'pendiente' || act.estado_actividad === 'reprogramado'
-  ).length;
 
   const statusData = [
     { name: 'Pendiente', value: pendientes, color: '#EAB308' },
+    { name: 'Reprogramado', value: reprogramadas, color: '#F97316' },
     { name: 'Completado', value: completadas, color: '#10B981' },
   ].filter(item => item.value > 0);
 
@@ -183,7 +186,7 @@ export default function Dashboard() {
             {/* Gráfico de Estado */}
             <div className="bg-white rounded-lg shadow p-6">
               <h3 className="text-lg font-semibold text-gray-700 mb-4">Estado de Actividades</h3>
-              <div className="flex justify-center items-center h-48">
+              <div className="flex justify-center items-center h-64">
                 {statusData.length > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
@@ -191,18 +194,25 @@ export default function Dashboard() {
                         data={statusData}
                         cx="50%"
                         cy="50%"
-                        innerRadius={50}
-                        outerRadius={70}
-                        paddingAngle={5}
+                        innerRadius={60}
+                        outerRadius={90}
+                        paddingAngle={3}
                         dataKey="value"
-                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                        labelLine={false}
+                        label={false}
                       >
                         {statusData.map((entry, index) => (
                           <Cell key={`cell-${index}`} fill={entry.color} />
                         ))}
                       </Pie>
                       <Tooltip />
+                      <Legend 
+                        verticalAlign="bottom" 
+                        height={36}
+                        formatter={(value, entry: any) => {
+                          const percentage = ((entry.payload.value / totalActividades) * 100).toFixed(0);
+                          return `${value}: ${entry.payload.value} (${percentage}%)`;
+                        }}
+                      />
                     </PieChart>
                   </ResponsiveContainer>
                 ) : (
@@ -212,11 +222,15 @@ export default function Dashboard() {
               <div className="mt-4 space-y-2">
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">Pendientes</span>
-                  <span className="font-semibold">{pendientes}</span>
+                  <span className="font-semibold text-yellow-600">{pendientes}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Reprogramadas</span>
+                  <span className="font-semibold text-orange-600">{reprogramadas}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">Completadas</span>
-                  <span className="font-semibold">{completadas}</span>
+                  <span className="font-semibold text-green-600">{completadas}</span>
                 </div>
                 <div className="flex justify-between text-sm border-t pt-2 mt-2">
                   <span className="text-gray-600 font-medium">Total</span>

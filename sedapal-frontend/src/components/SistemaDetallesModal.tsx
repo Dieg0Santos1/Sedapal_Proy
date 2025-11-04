@@ -101,26 +101,43 @@ export default function SistemaDetallesModal({
                   actividades.map((act) => (
                     <div key={act.id_actividad} className="bg-gray-50 p-3 rounded-lg hover:bg-gray-100 transition">
                       <p className="text-sm font-medium text-gray-900">{act.nombre_actividad}</p>
-                      <div className="flex items-center gap-2 mt-1">
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
                         <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-800">
                           T{act.trimestre}
                         </span>
                         <span className={`text-xs px-2 py-1 rounded-full text-white ${
-                          act.evaluacion === 'conforme' ? 'bg-green-500' :
-                          act.evaluacion === 'no conforme' ? 'bg-red-500' :
+                          act.estado_actividad === 'completado' ? 'bg-green-500' :
+                          act.estado_actividad === 'reprogramado' ? 'bg-purple-500' :
                           'bg-yellow-500'
                         }`}>
-                          {getEstadoLabel(act.evaluacion || 'pendiente')}
+                          {act.estado_actividad === 'completado' ? 'Completado' :
+                           act.estado_actividad === 'reprogramado' ? 'Reprogramado' : 'Pendiente'}
                         </span>
+                        {act.gerencia_abrev && (
+                          <span className="text-xs px-2 py-1 rounded bg-gray-200 text-gray-700">
+                            {act.gerencia_abrev}
+                          </span>
+                        )}
                       </div>
                     </div>
                   ))
                 )}
               </div>
-              <div className="mt-4 pt-4 border-t border-gray-200">
+              <div className="mt-4 pt-4 border-t border-gray-200 space-y-2">
                 <p className="text-sm text-gray-600">
                   <strong>Total:</strong> {actividades.length} actividad{actividades.length !== 1 ? 'es' : ''}
                 </p>
+                <div className="flex gap-4 text-xs">
+                  <span className="text-green-600">
+                    ✔ {actividades.filter(a => a.estado_actividad === 'completado').length} Completadas
+                  </span>
+                  <span className="text-yellow-600">
+                    ⏳ {actividades.filter(a => a.estado_actividad === 'pendiente').length} Pendientes
+                  </span>
+                  <span className="text-purple-600">
+                    🔄 {actividades.filter(a => a.estado_actividad === 'reprogramado').length} Reprogramadas
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -128,25 +145,39 @@ export default function SistemaDetallesModal({
             <div className="border border-gray-200 rounded-lg p-4">
               <div className="flex items-center mb-4">
                 <Users className="text-sedapal-lightBlue mr-2" size={24} />
-                <h3 className="text-lg font-bold text-gray-900">Usuarios</h3>
+                <h3 className="text-lg font-bold text-gray-900">Usuarios Asignados</h3>
               </div>
               <div className="space-y-2 max-h-64 overflow-y-auto">
                 {usuarios.length === 0 ? (
                   <p className="text-gray-500 text-sm">No hay usuarios asignados</p>
                 ) : (
-                  usuarios.map((usuario) => (
+                  usuarios.map((usuario: any) => (
                     <div key={usuario.id_usuario} className="bg-gray-50 p-3 rounded-lg hover:bg-gray-100 transition">
                       <p className="text-sm font-medium text-gray-900">
                         {usuario.nombre} {usuario.apellido}
                       </p>
                       <p className="text-xs text-gray-600 mt-1">{usuario.email}</p>
+                      {(usuario.gerencia_nombre || usuario.equipo_nombre) && (
+                        <div className="flex items-center gap-2 mt-2 flex-wrap">
+                          {usuario.gerencia_abrev && (
+                            <span className="text-xs px-2 py-0.5 rounded bg-gray-200 text-gray-700">
+                              {usuario.gerencia_abrev}
+                            </span>
+                          )}
+                          {usuario.equipo_nombre && (
+                            <span className="text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-700">
+                              {usuario.equipo_nombre}
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   ))
                 )}
               </div>
               <div className="mt-4 pt-4 border-t border-gray-200">
                 <p className="text-sm text-gray-600">
-                  <strong>Total:</strong> {usuarios.length} usuario{usuarios.length !== 1 ? 's' : ''}
+                  <strong>Total:</strong> {usuarios.length} usuario{usuarios.length !== 1 ? 's' : ''} asignado{usuarios.length !== 1 ? 's' : ''}
                 </p>
               </div>
             </div>
@@ -183,11 +214,10 @@ export default function SistemaDetallesModal({
                 </div>
               </div>
 
-              {/* Gráfico Circular - Actividades por Estado */}
+              {/* Estado de Actividades */}
               <div className="mt-6 pt-6 border-t border-gray-200">
                 <h4 className="text-sm font-semibold text-gray-700 mb-3">Estado de Actividades</h4>
                 <div className="flex flex-col sm:flex-row items-center gap-6">
-                  {/* Círculo simulado con barras */}
                   <div className="flex-1 w-full">
                     {actividadesPorEstado.length === 0 ? (
                       <p className="text-gray-500 text-sm text-center">Sin datos</p>
@@ -196,12 +226,22 @@ export default function SistemaDetallesModal({
                         {actividadesPorEstado.map((data) => {
                           const total = actividadesPorEstado.reduce((sum, d) => sum + d.cantidad, 0);
                           const porcentaje = total > 0 ? (data.cantidad / total) * 100 : 0;
+                          
+                          // Mapear estados de actividad correctamente
+                          const estadoColor = data.estado === 'completado' ? 'bg-green-500' :
+                                             data.estado === 'reprogramado' ? 'bg-purple-500' :
+                                             data.estado === 'pendiente' ? 'bg-yellow-500' : 'bg-gray-500';
+                          
+                          const estadoLabel = data.estado === 'completado' ? 'Completado' :
+                                             data.estado === 'reprogramado' ? 'Reprogramado' :
+                                             data.estado === 'pendiente' ? 'Pendiente' : data.estado;
+                          
                           return (
                             <div key={data.estado} className="flex items-center gap-3">
                               <div className="flex-1 bg-gray-200 rounded-full h-8 overflow-hidden">
                                 <div 
-                                  className={`h-full ${getEstadoColor(data.estado)} flex items-center justify-end pr-3 transition-all`}
-                                  style={{ width: `${porcentaje}%` }}
+                                  className={`h-full ${estadoColor} flex items-center justify-end pr-3 transition-all`}
+                                  style={{ width: `${Math.max(porcentaje, 10)}%` }}
                                 >
                                   <span className="text-xs font-bold text-white">
                                     {data.cantidad}
@@ -209,9 +249,9 @@ export default function SistemaDetallesModal({
                                 </div>
                               </div>
                               <div className="flex items-center gap-2 min-w-[120px]">
-                                <div className={`w-3 h-3 rounded-full ${getEstadoColor(data.estado)}`}></div>
+                                <div className={`w-3 h-3 rounded-full ${estadoColor}`}></div>
                                 <span className="text-sm font-medium text-gray-700">
-                                  {getEstadoLabel(data.estado)}
+                                  {estadoLabel}
                                 </span>
                               </div>
                               <span className="text-sm text-gray-600 min-w-[50px] text-right">

@@ -1,62 +1,45 @@
-import { useState, useEffect } from 'react';
-import { Download, File, CheckCircle, XCircle, Calendar, User } from 'lucide-react';
+import { useState } from 'react';
+import { CheckCircle, FileText } from 'lucide-react';
 import Modal from './Modal';
-import type { Entregable } from '../services/api';
 import confetti from 'canvas-confetti';
 
 interface ViewEntregablesModalProps {
   isOpen: boolean;
   onClose: () => void;
-  entregables: Entregable[];
+  entregableNombre?: string; // Nombre del tipo de entregable
   activityName?: string;
-  activityStatus?: string;
-  onDownload: (rutaArchivo: string, nombreArchivo: string) => Promise<void>;
-  onChangeStatus: (status: 'conforme' | 'rechazado') => Promise<void>;
+  activityMaxDate?: string | null; // Fecha máxima de sustento (fecha_sustento)
+  activityCompletionStatus?: 'pendiente' | 'reprogramado' | 'completado' | null; // Estado de la actividad
+  onChangeStatus: (status: 'conforme') => Promise<void>;
   isAdmin?: boolean;
 }
 
 export default function ViewEntregablesModal({ 
   isOpen, 
   onClose, 
-  entregables, 
+  entregableNombre,
   activityName,
-  activityStatus,
-  onDownload,
+  activityMaxDate,
+  activityCompletionStatus,
   onChangeStatus,
   isAdmin = true
 }: ViewEntregablesModalProps) {
-  const [downloading, setDownloading] = useState<string | null>(null);
   const [changingStatus, setChangingStatus] = useState(false);
   const [error, setError] = useState('');
 
-  const handleDownload = async (entregable: Entregable) => {
-    setDownloading(entregable.ruta_archivo);
-    setError('');
-    
-    try {
-      await onDownload(entregable.ruta_archivo, entregable.nombre_archivo);
-    } catch (err: any) {
-      setError('Error al descargar: ' + err.message);
-    } finally {
-      setDownloading(null);
-    }
-  };
-
-  const handleStatusChange = async (status: 'conforme' | 'rechazado') => {
+  const handleStatusChange = async () => {
     setChangingStatus(true);
     setError('');
 
     try {
-      await onChangeStatus(status);
+      await onChangeStatus('conforme');
       
-      if (status === 'conforme') {
-        confetti({
-          particleCount: 100,
-          spread: 70,
-          origin: { y: 0.6 },
-          colors: ['#10B981', '#34D399', '#6EE7B7']
-        });
-      }
+      confetti({
+        particleCount: 100,
+        spread: 70,
+        origin: { y: 0.6 },
+        colors: ['#10B981', '#34D399', '#6EE7B7']
+      });
       
       // Cerrar modal después de cambiar estado
       setTimeout(() => {
@@ -69,96 +52,88 @@ export default function ViewEntregablesModal({
     }
   };
 
-  const formatFileSize = (bytes?: number): string => {
-    if (!bytes || bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+  // Determinar el estado del entregable
+  const getEstadoEntregable = (): { color: string; texto: string; bgColor: string; borderColor: string } => {
+    const hoy = new Date();
+    hoy.setHours(0, 0, 0, 0);
+
+    // Si la actividad está completada, es "Cumplió"
+    if (activityCompletionStatus === 'completado') {
+      return { 
+        color: 'text-green-700', 
+        texto: '✅ Cumplió', 
+        bgColor: 'bg-green-50', 
+        borderColor: 'border-green-500' 
+      };
+    }
+
+    // Si la fecha ya pasó sin completarse, es "No cumplió"
+    if (activityMaxDate) {
+      const fechaMaxima = new Date(activityMaxDate + 'T00:00:00');
+      if (hoy > fechaMaxima) {
+        return { 
+          color: 'text-red-700', 
+          texto: '❌ No cumplió', 
+          bgColor: 'bg-red-50', 
+          borderColor: 'border-red-500' 
+        };
+      }
+    }
+
+    // De lo contrario, está pendiente
+    return { 
+      color: 'text-yellow-700', 
+      texto: '⌛ Pendiente', 
+      bgColor: 'bg-yellow-50', 
+      borderColor: 'border-yellow-500' 
+    };
   };
 
-  const formatDate = (dateString: string): string => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('es-PE', { 
-      day: '2-digit', 
-      month: '2-digit', 
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
+  const estado = getEstadoEntregable();
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Entregables de la Actividad">
+    <Modal isOpen={isOpen} onClose={onClose} title="Información del Entregable">
       <div className="space-y-4">
+        {/* Información de la actividad */}
         {activityName && (
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
             <p className="text-sm text-blue-800">
               <strong>Actividad:</strong> {activityName}
             </p>
-            {activityStatus && (
+            {activityMaxDate && (
               <p className="text-sm text-blue-800 mt-1">
-                <strong>Estado Actual:</strong> {
-                  activityStatus === 'conforme' ? '✅ Conforme' :
-                  activityStatus === 'rechazado' ? '❌ Rechazado' :
-                  '⏳ Pendiente'
-                }
+                <strong>Fecha Máxima:</strong> {(() => {
+                  const fecha = new Date(activityMaxDate + 'T00:00:00');
+                  return fecha.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                })()}
               </p>
             )}
           </div>
         )}
 
-        {/* Lista de entregables */}
-        {entregables.length === 0 ? (
-          <div className="text-center py-8 text-gray-500">
-            <File className="mx-auto mb-3 text-gray-300" size={48} />
-            <p>No hay entregables subidos aún</p>
-          </div>
-        ) : (
-          <div className="space-y-3 max-h-96 overflow-y-auto">
-            {entregables.map((entregable) => (
-              <div 
-                key={entregable.id} 
-                className="bg-gray-50 border border-gray-200 rounded-lg p-4 hover:bg-gray-100 transition"
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex items-start space-x-3 flex-1">
-                    <File className="text-sedapal-lightBlue mt-1" size={24} />
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-gray-900 truncate">
-                        {entregable.nombre_archivo}
-                      </p>
-                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500 mt-1">
-                        <span className="flex items-center gap-1">
-                          <Calendar size={12} />
-                          {formatDate(entregable.fecha_subida)}
-                        </span>
-                        {entregable.tamaño_archivo && (
-                          <span>{formatFileSize(entregable.tamaño_archivo)}</span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => handleDownload(entregable)}
-                    disabled={downloading === entregable.ruta_archivo}
-                    className="ml-3 text-sedapal-lightBlue hover:text-sedapal-blue transition flex items-center gap-1 px-3 py-2 rounded hover:bg-blue-50 disabled:opacity-50"
-                    title="Descargar"
-                  >
-                    {downloading === entregable.ruta_archivo ? (
-                      <span className="animate-spin">⏳</span>
-                    ) : (
-                      <>
-                        <Download size={18} />
-                        <span className="text-xs font-medium">Descargar</span>
-                      </>
-                    )}
-                  </button>
-                </div>
+        {/* Tipo de Entregable con Estado */}
+        <div className="bg-white border-2 border-gray-200 rounded-lg p-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-start gap-3 flex-1">
+              <FileText className="text-sedapal-lightBlue mt-1" size={32} />
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold text-gray-900 mb-1">
+                  Tipo de Entregable
+                </h3>
+                <p className="text-sm text-gray-700">
+                  {entregableNombre || 'No especificado'}
+                </p>
               </div>
-            ))}
+            </div>
+            
+            {/* Badge de Estado */}
+            <div className={`px-4 py-2 rounded-lg border-2 ${estado.bgColor} ${estado.borderColor} flex items-center gap-2`}>
+              <span className={`text-sm font-bold ${estado.color}`}>
+                {estado.texto}
+              </span>
+            </div>
           </div>
-        )}
+        </div>
 
         {/* Error message */}
         {error && (
@@ -167,35 +142,22 @@ export default function ViewEntregablesModal({
           </div>
         )}
 
-        {/* Acciones del administrador */}
-        {isAdmin && entregables.length > 0 && activityStatus !== 'conforme' && activityStatus !== 'rechazado' && (
-          <div className="border-t border-gray-200 pt-4 mt-4">
-            <p className="text-sm font-medium text-gray-700 mb-3">
-              Evaluar entregables:
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => handleStatusChange('conforme')}
-                disabled={changingStatus}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 transition disabled:opacity-50 font-medium"
-              >
-                <CheckCircle size={20} />
-                Marcar como Conforme
-              </button>
-              <button
-                onClick={() => handleStatusChange('rechazado')}
-                disabled={changingStatus}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-red-500 text-white rounded-lg hover:bg-red-600 transition disabled:opacity-50 font-medium"
-              >
-                <XCircle size={20} />
-                Marcar como Rechazado
-              </button>
-            </div>
+        {/* Botón Conforme (admin) o Completado (usuario) */}
+        {activityCompletionStatus !== 'completado' && (
+          <div className="border-t border-gray-200 pt-4">
+            <button
+              onClick={handleStatusChange}
+              disabled={changingStatus}
+              className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 transition disabled:opacity-50 disabled:cursor-not-allowed font-medium shadow-md hover:shadow-lg"
+            >
+              <CheckCircle size={22} />
+              {changingStatus ? 'Procesando...' : (isAdmin ? 'Marcar como Conforme' : 'Marcar como Completado')}
+            </button>
           </div>
         )}
 
         {/* Botón cerrar */}
-        <div className="flex justify-end pt-4 border-t border-gray-200">
+        <div className="flex justify-end pt-2">
           <button
             onClick={onClose}
             className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition"

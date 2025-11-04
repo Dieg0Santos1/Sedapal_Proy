@@ -2,6 +2,7 @@ import { ClipboardList, Search, Eye, ChevronLeft, ChevronRight } from 'lucide-re
 import { useState, useEffect } from 'react';
 import { adminActividadesService } from '../services/api';
 import type { ActividadConSistema } from '../services/api';
+import ViewEntregablesModal from '../components/ViewEntregablesModal';
 
 export default function MisActividades() {
   const [actividades, setActividades] = useState<ActividadConSistema[]>([]);
@@ -14,6 +15,10 @@ export default function MisActividades() {
   // Paginación
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
+  
+  // Modal de entregables
+  const [isEntregablesModalOpen, setIsEntregablesModalOpen] = useState(false);
+  const [selectedActividad, setSelectedActividad] = useState<ActividadConSistema | null>(null);
 
   useEffect(() => {
     loadData();
@@ -51,10 +56,9 @@ export default function MisActividades() {
     setCurrentPage(1);
   }, [searchTerm]);
 
-  const handleVerEntregables = (actividadId: number) => {
-    // TODO: Implementar vista de entregables
-    console.log('Ver entregables de actividad:', actividadId);
-    alert('Funcionalidad de Ver Entregables - Próximamente');
+  const handleVerEntregables = (actividad: ActividadConSistema) => {
+    setSelectedActividad(actividad);
+    setIsEntregablesModalOpen(true);
   };
 
   const getEstadoColor = (estado: string | null) => {
@@ -125,6 +129,7 @@ export default function MisActividades() {
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">N</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actividad</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sistema</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Gerencia</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Equipo Responsable</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fecha Máxima</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estado</th>
@@ -134,7 +139,7 @@ export default function MisActividades() {
           <tbody className="bg-white divide-y divide-gray-200">
             {actividadesPaginadas.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-6 py-8 text-center text-gray-500">
+                <td colSpan={8} className="px-6 py-8 text-center text-gray-500">
                   {searchTerm ? 'No se encontraron resultados' : 'No hay actividades creadas por administradores'}
                 </td>
               </tr>
@@ -146,6 +151,11 @@ export default function MisActividades() {
                   <td className="px-6 py-4 whitespace-nowrap">
                     <span className="px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-sedapal-cyan text-white">
                       {actividad.sistema_abrev || 'N/A'}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <span className="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded bg-gray-100 text-gray-700">
+                      {actividad.gerencia_abrev || 'N/A'}
                     </span>
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-700">
@@ -164,7 +174,7 @@ export default function MisActividades() {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
                     <button
-                      onClick={() => handleVerEntregables(actividad.id_actividad)}
+                      onClick={() => handleVerEntregables(actividad)}
                       className="text-white bg-sedapal-lightBlue hover:bg-sedapal-blue px-3 py-2 rounded transition flex items-center gap-1"
                       title="Ver Entregables"
                     >
@@ -207,6 +217,20 @@ export default function MisActividades() {
             </button>
           </div>
         </div>
+      )}
+      
+      {/* Modal: Ver Entregables */}
+      {selectedActividad && (
+        <ViewEntregablesModal
+          isOpen={isEntregablesModalOpen}
+          onClose={() => setIsEntregablesModalOpen(false)}
+          entregableNombre={selectedActividad.entregable_nombre}
+          activityName={selectedActividad.nombre_actividad}
+          activityMaxDate={selectedActividad.fecha_sustento || null}
+          activityCompletionStatus={selectedActividad.estado_actividad || null}
+          onChangeStatus={async () => {}}
+          isAdmin={false}
+        />
       )}
     </div>
   );

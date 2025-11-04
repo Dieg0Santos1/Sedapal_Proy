@@ -2,10 +2,10 @@ import { ClipboardCheck, LogOut } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { usuarioActividadesService, entregablesService } from '../services/api';
+import { usuarioActividadesService, actividadesService } from '../services/api';
 import type { ActividadConSistema } from '../services/api';
 import SedapalLogo from '../components/SedapalLogo';
-import UploadModal from '../components/UploadModal';
+import ViewEntregablesModal from '../components/ViewEntregablesModal';
 import confetti from 'canvas-confetti';
 
 interface MisActividadesUsuarioProps {
@@ -18,9 +18,8 @@ export default function MisActividadesUsuario({ idUsuario }: MisActividadesUsuar
   const [actividades, setActividades] = useState<ActividadConSistema[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
-  const [selectedActividadId, setSelectedActividadId] = useState<number | null>(null);
-  const [selectedActividadName, setSelectedActividadName] = useState<string>('');
+  const [isEntregablesModalOpen, setIsEntregablesModalOpen] = useState(false);
+  const [selectedActividad, setSelectedActividad] = useState<ActividadConSistema | null>(null);
 
   useEffect(() => {
     loadActividades();
@@ -49,26 +48,30 @@ export default function MisActividadesUsuario({ idUsuario }: MisActividadesUsuar
     }
   };
 
-  const handleOpenUpload = (actividadId: number, actividadName: string) => {
-    setSelectedActividadId(actividadId);
-    setSelectedActividadName(actividadName);
-    setIsUploadModalOpen(true);
+  const handleOpenEntregables = (actividad: ActividadConSistema) => {
+    setSelectedActividad(actividad);
+    setIsEntregablesModalOpen(true);
   };
 
-  const handleUpload = async (file: File) => {
-    if (!selectedActividadId) return;
+  const handleMarcarCompletado = async () => {
+    if (!selectedActividad) return;
 
     try {
-      await entregablesService.upload(file, selectedActividadId, idUsuario);
+      await actividadesService.update(selectedActividad.id_actividad, {
+        estado_actividad: 'completado'
+      });
+      
+      await loadActividades();
+      setIsEntregablesModalOpen(false);
       
       confetti({
         particleCount: 100,
         spread: 70,
         origin: { y: 0.6 },
-        colors: ['#06B6D4', '#0EA5E9', '#3B82F6', '#10B981']
+        colors: ['#10B981', '#34D399', '#6EE7B7']
       });
     } catch (err: any) {
-      throw new Error(err.message || 'Error al subir el archivo');
+      throw new Error(err.message || 'Error al marcar como completado');
     }
   };
 
@@ -134,6 +137,7 @@ export default function MisActividadesUsuario({ idUsuario }: MisActividadesUsuar
             <tr>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actividad</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sistema</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Gerencia</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Equipo Responsable</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Trimestre</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fecha Máxima</th>
@@ -144,7 +148,7 @@ export default function MisActividadesUsuario({ idUsuario }: MisActividadesUsuar
           <tbody className="bg-white divide-y divide-gray-200">
             {actividades.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-6 py-8 text-center text-gray-500">
+                <td colSpan={8} className="px-6 py-8 text-center text-gray-500">
                   No tienes actividades asignadas
                 </td>
               </tr>
@@ -155,6 +159,11 @@ export default function MisActividadesUsuario({ idUsuario }: MisActividadesUsuar
                   <td className="px-6 py-4 whitespace-nowrap">
                     <span className="px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-sedapal-cyan text-white">
                       {actividad.sistema_abrev || 'N/A'}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <span className="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded bg-gray-100 text-gray-700">
+                      {actividad.gerencia_abrev || 'N/A'}
                     </span>
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-700">
@@ -184,12 +193,12 @@ export default function MisActividadesUsuario({ idUsuario }: MisActividadesUsuar
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
                     <button
-                      onClick={() => handleOpenUpload(actividad.id_actividad, actividad.nombre_actividad || 'Sin nombre')}
+                      onClick={() => handleOpenEntregables(actividad)}
                       className="text-white bg-sedapal-lightBlue hover:bg-sedapal-blue px-3 py-2 rounded transition flex items-center gap-1"
-                      title="Subir Entregables"
+                      title="Ver Entregables"
                     >
                       <ClipboardCheck size={16} />
-                      <span className="text-xs">Subir Entregables</span>
+                      <span className="text-xs">Entregables</span>
                     </button>
                   </td>
                 </tr>
@@ -202,17 +211,21 @@ export default function MisActividadesUsuario({ idUsuario }: MisActividadesUsuar
       {/* Información adicional */}
       <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
         <p className="text-sm text-blue-800">
-          📋 <strong>Instrucciones:</strong> Revisa cada actividad asignada y sube los entregables correspondientes.
+          📋 <strong>Instrucciones:</strong> Revisa cada actividad asignada y marca como completado cuando termines.
         </p>
       </div>
       </div>
 
-      {/* Modal: Subir Entregable */}
-      <UploadModal
-        isOpen={isUploadModalOpen}
-        onClose={() => setIsUploadModalOpen(false)}
-        onUpload={handleUpload}
-        activityName={selectedActividadName}
+      {/* Modal: Ver Entregables */}
+      <ViewEntregablesModal
+        isOpen={isEntregablesModalOpen}
+        onClose={() => setIsEntregablesModalOpen(false)}
+        entregableNombre={selectedActividad?.entregable_nombre}
+        activityName={selectedActividad?.nombre_actividad}
+        activityMaxDate={selectedActividad?.fecha_sustento || null}
+        activityCompletionStatus={selectedActividad?.estado_actividad || null}
+        onChangeStatus={handleMarcarCompletado}
+        isAdmin={false}
       />
     </div>
   );
