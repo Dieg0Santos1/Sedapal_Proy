@@ -93,6 +93,11 @@ export type TipoEntregable = {
   estado?: boolean | null;
 };
 
+export type Categoria = {
+  id_categoria: number; // puede variar en BD; mapearemos dinámicamente
+  nombre: string;
+};
+
 // ============================================
 // GERENCIAS
 // ============================================
@@ -111,6 +116,23 @@ export const gerenciasService = {
     }
     console.log('Gerencias obtenidas:', data);
     return data || [];
+  },
+  // Obtener todas (incluye inactivas) para pantalla de configuración
+  async getAllAdmin(): Promise<Gerencia[]> {
+    const { data, error } = await supabase
+      .from('tb_gerencias')
+      .select('*')
+      .order('id_gerencia', { ascending: true });
+    if (error) throw error;
+    return data || [];
+  },
+  // Cambiar estado (activar/desactivar)
+  async updateEstado(idGerencia: number, estado: boolean): Promise<void> {
+    const { error } = await supabase
+      .from('tb_gerencias')
+      .update({ estado })
+      .eq('id_gerencia', idGerencia);
+    if (error) throw error;
   }
 };
 
@@ -118,31 +140,38 @@ export const gerenciasService = {
 // EQUIPOS
 // ============================================
 export const equiposService = {
-  // Obtener todos los equipos con su gerencia
+  // Obtener todos los equipos ACTIVOS (para selección)
   async getAll(): Promise<Equipo[]> {
     const { data, error } = await supabase
       .from('tb_equipos')
       .select('*')
+      .eq('estado', 1)
       .order('id_equipo', { ascending: true });
 
     if (error) {
       console.error('Error al cargar equipos desde Supabase:', error);
       throw error;
     }
-    
-    console.log('Datos de equipos desde Supabase (con todos los campos):', data);
-    if (data && data.length > 0) {
-      console.log('Campos del primer equipo:', Object.keys(data[0]));
-    }
     return data || [];
   },
 
-  // Obtener equipos filtrados por gerencia
+  // Obtener TODOS los equipos (incluye inactivos) - uso administrativo
+  async getAllAdmin(): Promise<Equipo[]> {
+    const { data, error } = await supabase
+      .from('tb_equipos')
+      .select('*')
+      .order('id_equipo', { ascending: true });
+    if (error) throw error;
+    return data || [];
+  },
+
+  // Obtener equipos por gerencia (solo activos)
   async getByGerencia(idGerencia: number): Promise<Equipo[]> {
     const { data, error } = await supabase
       .from('tb_equipos')
       .select('*')
       .eq('id_gerencia', idGerencia)
+      .eq('estado', 1)
       .order('id_equipo', { ascending: true });
 
     if (error) {
@@ -150,6 +179,15 @@ export const equiposService = {
       throw error;
     }
     return data || [];
+  },
+
+  // Cambiar estado (activar/desactivar)
+  async updateEstado(idEquipo: number, estado: boolean | number): Promise<void> {
+    const { error } = await supabase
+      .from('tb_equipos')
+      .update({ estado })
+      .eq('id_equipo', idEquipo);
+    if (error) throw error;
   }
 };
 
@@ -157,27 +195,53 @@ export const equiposService = {
 // TIPOS DE ENTREGABLES
 // ============================================
 export const tiposEntregablesService = {
-  // Obtener todos los tipos de entregables
+  // Obtener tipos de entregables ACTIVOS (para selección)
   async getAll(): Promise<TipoEntregable[]> {
     const { data, error } = await supabase
       .from('entregables')
       .select('*')
+      .eq('estado', true)
       .order('id_entregable', { ascending: true });
 
     if (error) {
       console.error('Error al cargar tipos de entregables:', error);
       throw error;
     }
-    console.log('Tipos de entregables obtenidos (RAW):', data);
-    if (data && data.length > 0) {
-      console.log('Primer registro completo:', JSON.stringify(data[0], null, 2));
-      console.log('Campos disponibles en el primer registro:', Object.keys(data[0]));
-      console.log('Valores de cada campo del primer registro:');
-      Object.keys(data[0]).forEach(key => {
-        console.log(`  ${key}: "${data[0][key]}" (tipo: ${typeof data[0][key]})`);
-      });
-    }
     return data || [];
+  },
+  // Obtener TODOS los tipos de entregables (incluye inactivos) - uso administrativo
+  async getAllAdmin(): Promise<TipoEntregable[]> {
+    const { data, error } = await supabase
+      .from('entregables')
+      .select('*')
+      .order('id_entregable', { ascending: true });
+    if (error) throw error;
+    return data || [];
+  },
+  // Cambiar estado (activar/desactivar)
+  async updateEstado(idEntregable: number, estado: boolean): Promise<void> {
+    const { error } = await supabase
+      .from('entregables')
+      .update({ estado })
+      .eq('id_entregable', idEntregable);
+    if (error) throw error;
+  }
+};
+
+// ============================================
+// CATEGORÍAS
+// ============================================
+export const categoriasService = {
+  async getAll(): Promise<Categoria[]> {
+    const { data, error } = await supabase
+      .from('categorias')
+      .select('*')
+      .order('id', { ascending: true });
+    if (error) throw error;
+    return (data || []).map((row: any) => ({
+      id_categoria: row.id_categoria ?? row.id ?? row.idcategoria ?? 1,
+      nombre: (row.nombre ?? row.nombre_categoria ?? row.nombre_categorias ?? '').toString()
+    }));
   }
 };
 
@@ -286,15 +350,47 @@ export const entregablesService = {
 // SISTEMAS
 // ============================================
 export const sistemasService = {
-  // Obtener todos los sistemas
+  // Obtener todos los sistemas ACTIVOS (para vistas y selecciones)
   async getAll(): Promise<Sistema[]> {
-    const { data, error } = await supabase
+    const { data: sistemasRaw, error } = await supabase
+      .from('tb_sistemas')
+      .select('*')
+      .eq('estado', 1)
+      .order('id', { ascending: true });
+
+    if (error) throw error;
+
+    // Obtener admin asignado por sistema (si existe) y traer su nombre completo
+    const { data: asignaciones } = await supabase
+      .from('tb_admin_sistemas')
+      .select('id_sistema, id_admin');
+    const adminBySistema = new Map((asignaciones || []).map((a: any) => [a.id_sistema, a.id_admin]));
+    const adminIds = Array.from(new Set((asignaciones || []).map((a: any) => a.id_admin)));
+    let usuariosMap = new Map<number, any>();
+    if (adminIds.length > 0) {
+      const { data: usuarios } = await supabase
+        .from('tb_usuarios')
+        .select('id_usuario, nombre, apellido')
+        .in('id_usuario', adminIds);
+      usuariosMap = new Map((usuarios || []).map((u: any) => [u.id_usuario, `${u.nombre} ${u.apellido}`]));
+    }
+
+    return (sistemasRaw || []).map((s: any) => {
+      const adminId = adminBySistema.get(s.id);
+      const adminNombre = adminId ? (usuariosMap.get(adminId) || s.administrador || '') : (s.administrador || '');
+      return { ...s, administrador: adminNombre } as Sistema;
+    });
+  },
+
+  // Obtener TODOS los sistemas (incluye inactivos) - uso administrativo
+  async getAllAdmin(): Promise<Sistema[]> {
+    const { data: sistemasRaw, error } = await supabase
       .from('tb_sistemas')
       .select('*')
       .order('id', { ascending: true });
 
     if (error) throw error;
-    return data || [];
+    return (sistemasRaw || []) as any;
   },
 
   // Crear un sistema
@@ -735,6 +831,31 @@ export const actividadesService = {
       .eq('id_actividad', id);
 
     if (error) throw error;
+  },
+
+  // Eliminar actividad + relaciones (usuario_actividades, admin_actividades, as_sis_act, entregables)
+  async deleteWithRelations(idActividad: number): Promise<void> {
+    // Eliminar entregables asociados (solo registros BD)
+    await supabase.from('tb_entregables').delete().eq('id_actividad', idActividad);
+    // Eliminar asignaciones de usuarios
+    await supabase.from('tb_usuario_actividades').delete().eq('id_actividad', idActividad);
+    // Eliminar relación admin-actividad
+    await supabase.from('tb_admin_actividades').delete().eq('id_actividad', idActividad);
+    // Eliminar relación sistema-actividad-equipo
+    await supabase.from('tb_as_sis_act').delete().eq('id_actividad', idActividad);
+    // Finalmente, eliminar actividad
+    const { error } = await supabase.from('tb_actividades').delete().eq('id_actividad', idActividad);
+    if (error) throw error;
+  },
+
+  // Obtener actividades por IDs (raw)
+  async getByIds(ids: number[]): Promise<any[]> {
+    const { data, error } = await supabase
+      .from('tb_actividades')
+      .select('*')
+      .in('id_actividad', ids);
+    if (error) throw error;
+    return data || [];
   }
 };
 
@@ -813,11 +934,148 @@ export const notificacionesService = {
       console.error('❌ Error al enviar notificación:', error);
       // No lanzar error para no interrumpir el flujo principal
     }
+  },
+
+  // Usuario marcó 'Cumplió' -> notificar admin
+  async enviarUsuarioCumplio(payload: {
+    adminEmail: string;
+    usuarioNombre: string;
+    usuarioEmail: string;
+    nombreActividad: string;
+    entregableNombre?: string | null;
+    sistemaAbrev?: string | null;
+    equipoNombre?: string | null;
+    fechaMaxima?: string | null;
+  }): Promise<void> {
+    const response = await fetch(`${BACKEND_URL}/api/notificaciones/usuario-cumplio`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+      const txt = await response.text();
+      throw new Error(txt || 'Error al notificar cumplimiento');
+    }
+  },
+
+  // Admin marcó 'Conforme' -> notificar usuario(s) y superadmin(es)
+  async enviarConforme(payload: {
+    usuariosDestino: string[];
+    superadminsDestino: string[];
+    nombreActividad: string;
+    entregableNombre?: string | null;
+    sistemaAbrev?: string | null;
+    equipoNombre?: string | null;
+    fechaMaxima?: string | null;
+  }): Promise<void> {
+    const response = await fetch(`${BACKEND_URL}/api/notificaciones/conforme`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+      const txt = await response.text();
+      throw new Error(txt || 'Error al notificar conforme');
+    }
+  },
+
+  // Nuevo: Usuario creado con equipo/gerencia
+  async enviarUsuarioCreado(payload: {
+    email: string;
+    nombreUsuario: string;
+    contrasena: string;
+    gerenciaNombre: string;
+    equipoNombre: string;
+  }): Promise<void> {
+    const response = await fetch(`${BACKEND_URL}/api/notificaciones/usuario-creado`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+      const txt = await response.text();
+      throw new Error(txt || 'Error al enviar notificación de usuario creado');
+    }
+  },
+
+  // Nuevo: Asignación de sistema a admin
+  async enviarAsignacionSistema(payload: {
+    email: string;
+    nombreAdmin: string;
+    sistemaAbrev: string;
+    sistemaNombre: string;
+  }): Promise<void> {
+    const response = await fetch(`${BACKEND_URL}/api/notificaciones/asignacion-sistema`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+      const txt = await response.text();
+      throw new Error(txt || 'Error al enviar notificación de asignación de sistema');
+    }
   }
 };
 
 export const usuariosService = {
-  // Crear administrador
+  // Crear administrador (vía backend: envía credenciales por email y asigna sistema)
+  async createAdminBackend(admin: {
+    nombre: string;
+    apellido: string;
+    email: string;
+    contrasena: string;
+    idSistema: number;
+  }): Promise<Usuario> {
+    const response = await fetch(`${BACKEND_URL}/api/usuarios/admin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(admin)
+    });
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(errText || 'Error al crear administrador');
+    }
+    return response.json();
+  },
+
+  // Crear usuario (vía backend: genera contraseña y envía credenciales por email)
+  async createUsuarioBackend(payload: {
+    nombre: string;
+    apellido: string;
+    email: string;
+  }): Promise<Usuario & { contrasena?: string }> {
+    const response = await fetch(`${BACKEND_URL}/api/usuarios/usuario`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(errText || 'Error al crear usuario');
+    }
+    return response.json();
+  },
+  
+  // Crear usuario con actividad (backend envía credenciales + detalle de actividad)
+  async createUsuarioConActividad(payload: {
+    nombre: string;
+    apellido: string;
+    email: string;
+    nombreActividad: string;
+    sistemaAbrev: string;
+    equipoNombre: string;
+    trimestre: number;
+    fechaMaxima: string | null;
+  }): Promise<Usuario & { contrasena?: string }> {
+    const response = await fetch(`${BACKEND_URL}/api/usuarios/usuario-con-actividad`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(errText || 'Error al crear usuario con actividad');
+    }
+    return response.json();
+  },
+  
+  // Mantener compatibilidad con funciones antiguas (deprecated)
+  // createAdmin y createUser directos a Supabase (sin email automático)
   async createAdmin(admin: {
     nombre: string;
     apellido: string;
@@ -826,47 +1084,35 @@ export const usuariosService = {
     idSistema: number;
   }): Promise<Usuario> {
     try {
-      // Crear el usuario directamente en Supabase
       const { data: nuevoAdmin, error: errorUsuario } = await supabase
         .from('tb_usuarios')
-        .insert([{
-          nombre: admin.nombre,
-          apellido: admin.apellido,
-          email: admin.email,
-          contrasena: admin.contrasena,
-          rol: 'admin',
-          estado: true
-        }])
+        .insert([
+          {
+            nombre: admin.nombre,
+            apellido: admin.apellido,
+            email: admin.email,
+            contrasena: admin.contrasena,
+            rol: 'admin',
+            estado: true,
+          },
+        ])
         .select()
         .single();
-
       if (errorUsuario) throw errorUsuario;
 
-      // Asignar el sistema al admin
       const { error: errorAsignacion } = await supabase
         .from('tb_admin_sistemas')
-        .insert([{
-          id_admin: nuevoAdmin.id_usuario,
-          id_sistema: admin.idSistema
-        }]);
-
+        .insert([{ id_admin: nuevoAdmin.id_usuario, id_sistema: admin.idSistema }]);
       if (errorAsignacion) {
-        // Si falla la asignación, eliminar el usuario creado
-        await supabase
-          .from('tb_usuarios')
-          .delete()
-          .eq('id_usuario', nuevoAdmin.id_usuario);
+        await supabase.from('tb_usuarios').delete().eq('id_usuario', nuevoAdmin.id_usuario);
         throw errorAsignacion;
       }
-
       return nuevoAdmin;
     } catch (error: any) {
-      console.error('Error completo en createAdmin:', error);
       throw new Error('Error al crear administrador: ' + error.message);
     }
   },
 
-  // Crear usuario
   async createUser(usuario: {
     nombre: string;
     apellido: string;
@@ -875,29 +1121,27 @@ export const usuariosService = {
     idActividad: number;
   }): Promise<Usuario> {
     try {
-      // Crear el usuario directamente en Supabase
       const { data: nuevoUsuario, error: errorUsuario } = await supabase
         .from('tb_usuarios')
-        .insert([{
-          nombre: usuario.nombre,
-          apellido: usuario.apellido,
-          email: usuario.email,
-          contrasena: usuario.contrasena,
-          rol: 'usuario',
-          estado: true
-        }])
+        .insert([
+          {
+            nombre: usuario.nombre,
+            apellido: usuario.apellido,
+            email: usuario.email,
+            contrasena: usuario.contrasena,
+            rol: 'usuario',
+            estado: true,
+          },
+        ])
         .select()
         .single();
-
       if (errorUsuario) throw errorUsuario;
-
       return nuevoUsuario;
     } catch (error: any) {
-      console.error('Error al crear usuario:', error);
       throw new Error('Error al crear usuario: ' + error.message);
     }
   },
-
+  
   // Validar credenciales
   async validateCredenciales(email: string, contrasena: string): Promise<Usuario | null> {
     try {
@@ -963,6 +1207,82 @@ export const usuariosService = {
 };
 
 // ============================================
+// USUARIO ↔ EQUIPO (relación global)
+// ============================================
+export const usuariosEquiposService = {
+  // Vincular un usuario a una gerencia y equipo (único por usuario)
+  async assign(idUsuario: number, idGerencia: number, idEquipo: number): Promise<{ id: number; id_usuario: number; id_gerencia: number; id_equipo: number }>{
+    const { data, error } = await supabase
+      .from('tb_usuario_equipo')
+      .upsert([
+        { id_usuario: idUsuario, id_gerencia: idGerencia, id_equipo: idEquipo }
+      ], { onConflict: 'id_usuario' })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data as any;
+  },
+
+  // Obtener mapeo de un usuario
+  async getByUsuario(idUsuario: number): Promise<{ id_usuario: number; id_gerencia: number | null; id_equipo: number | null } | null> {
+    const { data, error } = await supabase
+      .from('tb_usuario_equipo')
+      .select('id_usuario, id_gerencia, id_equipo')
+      .eq('id_usuario', idUsuario)
+      .maybeSingle();
+    if (error) throw error;
+    return data || null;
+  },
+
+  // Obtener usuarios (rol usuario) por equipo
+  async getUsuariosByEquipo(idEquipo: number): Promise<Usuario[]> {
+    // obtener ids de usuarios desde la tabla de mapeo
+    const { data: mapeos, error: errM } = await supabase
+      .from('tb_usuario_equipo')
+      .select('id_usuario')
+      .eq('id_equipo', idEquipo);
+    if (errM) throw errM;
+    const ids = Array.from(new Set((mapeos || []).map((m: any) => m.id_usuario)));
+    if (ids.length === 0) return [];
+    const { data: usuarios, error: errU } = await supabase
+      .from('tb_usuarios')
+      .select('*')
+      .in('id_usuario', ids)
+      .eq('rol', 'usuario')
+      .eq('estado', true);
+    if (errU) throw errU;
+    return usuarios || [];
+  },
+
+  // Obtener mapeo de usuario→equipo para todos los usuarios de rol 'usuario'
+  async getUsuariosConEquipo(): Promise<Array<Usuario & { id_gerencia?: number | null; id_equipo?: number | null }>> {
+    const { data: usuarios, error: errU } = await supabase
+      .from('tb_usuarios')
+      .select('*')
+      .eq('rol', 'usuario')
+      .eq('estado', true);
+    if (errU) throw errU;
+
+    const ids = (usuarios || []).map(u => u.id_usuario);
+    if (ids.length === 0) return usuarios || [];
+
+    const { data: mapeos, error: errM } = await supabase
+      .from('tb_usuario_equipo')
+      .select('id_usuario, id_gerencia, id_equipo')
+      .in('id_usuario', ids);
+    if (errM) throw errM;
+
+    const map = new Map((mapeos || []).map((m: any) => [m.id_usuario, m]));
+    return (usuarios || []).map((u: any) => ({
+      ...u,
+      id_gerencia: map.get(u.id_usuario)?.id_gerencia ?? null,
+      id_equipo: map.get(u.id_usuario)?.id_equipo ?? null,
+    }));
+  },
+};
+
+// ============================================
 // ASIGNACIÓN DE SISTEMAS A ADMINISTRADORES
 // ============================================
 export const adminSistemasService = {
@@ -998,11 +1318,12 @@ export const adminSistemasService = {
 
       const sistemaIds = asignaciones.map(a => a.id_sistema);
 
-      // Obtener los datos completos de los sistemas
+      // Obtener los datos completos de los sistemas (solo activos)
       const { data: sistemas, error: errorSistemas } = await supabase
         .from('tb_sistemas')
         .select('*')
         .in('id', sistemaIds)
+        .eq('estado', 1)
         .order('id', { ascending: true });
 
       if (errorSistemas) throw errorSistemas;
@@ -1045,6 +1366,46 @@ export const adminSistemasService = {
       .eq('id_sistema', idSistema);
 
     if (error) throw error;
+  }
+};
+
+// ============================================
+// REFERENCIAS A ACTIVIDADES (para validaciones de desactivación)
+// ============================================
+export const referenciasService = {
+  async equipoTieneActividades(idEquipo: number): Promise<boolean> {
+    const { data, error } = await supabase
+      .from('tb_as_sis_act')
+      .select('id', { count: 'exact', head: true })
+      .eq('id_equipo', idEquipo);
+    if (error) throw error;
+    // Si la librería no devuelve count con head: true, realizar fallback simple
+    if ((data as any) === null) {
+      const { data: rows } = await supabase
+        .from('tb_as_sis_act')
+        .select('id')
+        .eq('id_equipo', idEquipo)
+        .limit(1);
+      return !!(rows && rows.length > 0);
+    }
+    // count no está en data; sin head tendríamos que implementar distinto. Consideramos fallback ya cubierto.
+    return true; // con head, si no hay error asumimos existencia; el fallback cubre caso real.
+  },
+  async gerenciaTieneActividades(idGerencia: number): Promise<boolean> {
+    const { data } = await supabase
+      .from('tb_as_sis_act')
+      .select('id')
+      .eq('id_gerencia', idGerencia)
+      .limit(1);
+    return !!(data && data.length > 0);
+  },
+  async entregableTieneActividades(idEntregable: number): Promise<boolean> {
+    const { data } = await supabase
+      .from('tb_actividades')
+      .select('id_actividad')
+      .eq('id_entregable', idEntregable)
+      .limit(1);
+    return !!(data && data.length > 0);
   }
 };
 
@@ -1117,8 +1478,43 @@ export const usuarioActividadesService = {
     
     const cumplimientoMap = new Map((asignaciones || []).map(a => [a.id_actividad, a.cumplimiento]));
 
+    // Obtener cumplimiento de TODOS los usuarios para marcar en_revision si alguien marcó 'cumple'
+    const { data: cumplAll } = await supabase
+      .from('tb_usuario_actividades')
+      .select('id_actividad, cumplimiento')
+      .in('id_actividad', actividadIds);
+    const enRevisionSet = new Set<number>();
+    (cumplAll || []).forEach((c: any) => { if (c.cumplimiento === 'cumple') enRevisionSet.add(c.id_actividad); });
+
+    // Para mostrar todos los entregables del "grupo" (misma actividad + misma relación),
+    // obtenemos otras actividades con igual nombre y luego filtramos por la misma relación.
+    const nombresUnicos = Array.from(new Set((actividadesData || []).map((a: any) => a.nombre_actividad).filter(Boolean)));
+    let otrasActividadesMismoNombre: any[] = [];
+    if (nombresUnicos.length > 0) {
+      const { data: actsMismoNombre } = await supabase
+        .from('tb_actividades')
+        .select('*')
+        .in('nombre_actividad', nombresUnicos);
+      otrasActividadesMismoNombre = actsMismoNombre || [];
+    }
+    const idsActsMismoNombre = (otrasActividadesMismoNombre || []).map((a: any) => a.id_actividad);
+    const { data: relActsMismoNombre } = idsActsMismoNombre.length > 0 ? await supabase
+      .from('tb_as_sis_act')
+      .select('id_actividad, id_sistema, id_equipo, id_gerencia')
+      .in('id_actividad', idsActsMismoNombre) : { data: [] as any[] } as any;
+    const relMismoNombreMap = new Map<number, any>();
+    (relActsMismoNombre || []).forEach((r: any) => relMismoNombreMap.set(r.id_actividad, r));
+
     return (actividadesData || []).map((actividad: any) => {
       const relacion = relacionesMap.get(actividad.id_actividad);
+      // Buscar hermanos con mismo nombre y misma relación (sistema, equipo, gerencia)
+      const hermanos = (otrasActividadesMismoNombre || []).filter((a: any) => {
+        if (a.nombre_actividad !== actividad.nombre_actividad) return false;
+        const rel = relMismoNombreMap.get(a.id_actividad);
+        return rel && relacion && rel.id_sistema === relacion.id_sistema && rel.id_equipo === relacion.id_equipo && rel.id_gerencia === relacion.id_gerencia;
+      });
+      const entregablesLista = Array.from(new Set(hermanos.map((h: any) => h.id_entregable ? (entregablesMap.get(h.id_entregable) || 'No especificado') : null).filter(Boolean)));
+
       return {
         ...actividad,
         sistema_abrev: relacion ? (sistemasMap.get(relacion.id_sistema) || 'N/A') : 'N/A',
@@ -1126,10 +1522,119 @@ export const usuarioActividadesService = {
         gerencia_nombre: relacion?.id_gerencia ? (gerenciasNombreMap.get(relacion.id_gerencia) || 'N/A') : 'N/A',
         gerencia_abrev: relacion?.id_gerencia ? (gerenciasAbrevMap.get(relacion.id_gerencia) || 'N/A') : 'N/A',
         entregable_nombre: actividad.id_entregable ? (entregablesMap.get(actividad.id_entregable) || 'No especificado') : 'No especificado',
+        entregables_lista: entregablesLista,
         cumplimiento: cumplimientoMap.get(actividad.id_actividad) || 'pendiente',
         id_sistema: relacion?.id_sistema,
         id_equipo: relacion?.id_equipo,
-        id_gerencia: relacion?.id_gerencia
+        id_gerencia: relacion?.id_gerencia,
+        en_revision: enRevisionSet.has(actividad.id_actividad)
+      };
+    });
+  },
+
+  // Obtener actividades del usuario o de su equipo (unión)
+  async getActividadesByUsuarioOTeam(idUsuario: number): Promise<ActividadConSistema[]> {
+    // Obtener equipo del usuario
+    const mapeo = await usuariosEquiposService.getByUsuario(idUsuario);
+
+    // Asignaciones del usuario
+    const { data: asignaciones, error: errorAsig } = await supabase
+      .from('tb_usuario_actividades')
+      .select('id_actividad, cumplimiento')
+      .eq('id_usuario', idUsuario);
+    if (errorAsig) throw errorAsig;
+
+    const idsUser = (asignaciones || []).map(a => a.id_actividad);
+
+    // Actividades por equipo
+    let idsTeam: number[] = [];
+    if (mapeo?.id_equipo) {
+      const { data: relTeam } = await supabase
+        .from('tb_as_sis_act')
+        .select('id_actividad')
+        .eq('id_equipo', mapeo.id_equipo);
+      idsTeam = (relTeam || []).map((r: any) => r.id_actividad);
+    }
+
+    const actividadIds = Array.from(new Set([ ...idsUser, ...idsTeam ]));
+    if (actividadIds.length === 0) return [];
+
+    // Obtener actividades
+    const { data: actividadesData, error: actError } = await supabase
+      .from('tb_actividades')
+      .select('*')
+      .in('id_actividad', actividadIds)
+      .order('id_actividad', { ascending: true });
+    if (actError) throw actError;
+
+    // Relaciones, sistemas, equipos, gerencias, entregables
+    const { data: relacionesData } = await supabase
+      .from('tb_as_sis_act')
+      .select('id_actividad, id_sistema, id_equipo, id_gerencia')
+      .in('id_actividad', actividadIds);
+    const { data: sistemasData } = await supabase.from('tb_sistemas').select('id, abrev');
+    const { data: equiposData } = await supabase.from('tb_equipos').select('id_equipo, desc_equipo');
+    const { data: gerenciasData } = await supabase.from('tb_gerencias').select('id_gerencia, des_gerencia, abrev');
+    const { data: entregablesData } = await supabase.from('entregables').select('id_entregable, nombre_entregables');
+
+    const sistemasMap = new Map((sistemasData || []).map(s => [s.id, s.abrev]));
+    const equiposMap = new Map((equiposData || []).map(e => [e.id_equipo, e.desc_equipo]));
+    const gerenciasNombreMap = new Map((gerenciasData || []).map(g => [g.id_gerencia, g.des_gerencia]));
+    const gerenciasAbrevMap = new Map((gerenciasData || []).map((g: any) => [g.id_gerencia, g.abrev]));
+    const entregablesMap = new Map((entregablesData || []).map((e: any) => [e.id_entregable, e.nombre_entregables]));
+    const relacionesMap = new Map<number, any>();
+    (relacionesData || []).forEach(rel => { if (!relacionesMap.has(rel.id_actividad)) relacionesMap.set(rel.id_actividad, rel); });
+
+    const cumplimientoMap = new Map((asignaciones || []).map(a => [a.id_actividad, a.cumplimiento]));
+
+    const { data: cumplAll } = await supabase
+      .from('tb_usuario_actividades')
+      .select('id_actividad, cumplimiento')
+      .in('id_actividad', actividadIds);
+    const enRevisionSet = new Set<number>();
+    (cumplAll || []).forEach((c: any) => { if (c.cumplimiento === 'cumple') enRevisionSet.add(c.id_actividad); });
+
+    // Agrupar entregables "hermanos"
+    const nombresUnicos = Array.from(new Set((actividadesData || []).map((a: any) => a.nombre_actividad).filter(Boolean)));
+    let otrasActividadesMismoNombre: any[] = [];
+    if (nombresUnicos.length > 0) {
+      const { data: actsMismoNombre } = await supabase
+        .from('tb_actividades')
+        .select('*')
+        .in('nombre_actividad', nombresUnicos);
+      otrasActividadesMismoNombre = actsMismoNombre || [];
+    }
+    const idsActsMismoNombre = (otrasActividadesMismoNombre || []).map((a: any) => a.id_actividad);
+    const { data: relActsMismoNombre } = idsActsMismoNombre.length > 0 ? await supabase
+      .from('tb_as_sis_act')
+      .select('id_actividad, id_sistema, id_equipo, id_gerencia')
+      .in('id_actividad', idsActsMismoNombre) : { data: [] as any[] } as any;
+    const relMismoNombreMap = new Map<number, any>();
+    (relActsMismoNombre || []).forEach((r: any) => relMismoNombreMap.set(r.id_actividad, r));
+
+    return (actividadesData || []).map((actividad: any) => {
+      const relacion = relacionesMap.get(actividad.id_actividad);
+      // Buscar hermanos con mismo nombre y misma relación
+      const hermanos = (otrasActividadesMismoNombre || []).filter((a: any) => {
+        if (a.nombre_actividad !== actividad.nombre_actividad) return false;
+        const rel = relMismoNombreMap.get(a.id_actividad);
+        return rel && relacion && rel.id_sistema === relacion.id_sistema && rel.id_equipo === relacion.id_equipo && rel.id_gerencia === relacion.id_gerencia;
+      });
+      const entregablesLista = Array.from(new Set(hermanos.map((h: any) => h.id_entregable ? (entregablesMap.get(h.id_entregable) || 'No especificado') : null).filter(Boolean)));
+
+      return {
+        ...actividad,
+        sistema_abrev: relacion ? (sistemasMap.get(relacion.id_sistema) || 'N/A') : 'N/A',
+        equipo_nombre: relacion?.id_equipo ? (equiposMap.get(relacion.id_equipo) || 'N/A') : 'N/A',
+        gerencia_nombre: relacion?.id_gerencia ? (gerenciasNombreMap.get(relacion.id_gerencia) || 'N/A') : 'N/A',
+        gerencia_abrev: relacion?.id_gerencia ? (gerenciasAbrevMap.get(relacion.id_gerencia) || 'N/A') : 'N/A',
+        entregable_nombre: actividad.id_entregable ? (entregablesMap.get(actividad.id_entregable) || 'No especificado') : 'No especificado',
+        entregables_lista: entregablesLista,
+        cumplimiento: cumplimientoMap.get(actividad.id_actividad) || 'pendiente',
+        id_sistema: relacion?.id_sistema,
+        id_equipo: relacion?.id_equipo,
+        id_gerencia: relacion?.id_gerencia,
+        en_revision: enRevisionSet.has(actividad.id_actividad)
       };
     });
   },
@@ -1140,16 +1645,15 @@ export const usuarioActividadesService = {
     idActividad: number, 
     cumplimiento: 'cumple' | 'no_cumple'
   ): Promise<UsuarioActividad> {
+    // Usar upsert para garantizar que exista la fila (soporta casos de actividades visibles por equipo)
     const { data, error } = await supabase
       .from('tb_usuario_actividades')
-      .update({ cumplimiento })
-      .eq('id_usuario', idUsuario)
-      .eq('id_actividad', idActividad)
+      .upsert([{ id_usuario: idUsuario, id_actividad: idActividad, cumplimiento }], { onConflict: 'id_usuario,id_actividad' })
       .select()
       .single();
 
     if (error) throw error;
-    return data;
+    return data as any;
   },
 
   // Obtener usuarios asignados a una actividad
@@ -1176,6 +1680,17 @@ export const usuarioActividadesService = {
 
     if (errorUsuarios) throw errorUsuarios;
     return usuarios || [];
+  },
+
+  // Superadmins
+  async getSuperadmins(): Promise<Usuario[]> {
+    const { data, error } = await supabase
+      .from('tb_usuarios')
+      .select('*')
+      .eq('rol', 'superadmin')
+      .eq('estado', true);
+    if (error) throw error;
+    return data || [];
   }
 };
 
@@ -1225,6 +1740,11 @@ export const adminActividadesService = {
       .select('id_actividad, id_sistema, id_equipo, id_gerencia')
       .in('id_actividad', actividadIds);
 
+    const { data: cumplData } = await supabase
+      .from('tb_usuario_actividades')
+      .select('id_actividad, cumplimiento')
+      .in('id_actividad', actividadIds);
+
     const { data: sistemasData } = await supabase.from('tb_sistemas').select('id, abrev');
     const { data: equiposData } = await supabase.from('tb_equipos').select('id_equipo, desc_equipo');
     const { data: gerenciasData } = await supabase.from('tb_gerencias').select('id_gerencia, des_gerencia, abrev');
@@ -1242,6 +1762,13 @@ export const adminActividadesService = {
       }
     });
 
+    const enRevisionSet = new Set<number>();
+    const asignadosCountMap = new Map<number, number>();
+    (cumplData || []).forEach((c: any) => {
+      if (c.cumplimiento === 'cumple') enRevisionSet.add(c.id_actividad);
+      asignadosCountMap.set(c.id_actividad, (asignadosCountMap.get(c.id_actividad) || 0) + 1);
+    });
+
     return (actividadesData || []).map((actividad: any) => {
       const relacion = relacionesMap.get(actividad.id_actividad);
       return {
@@ -1253,9 +1780,29 @@ export const adminActividadesService = {
         entregable_nombre: actividad.id_entregable ? (entregablesMap.get(actividad.id_entregable) || 'No especificado') : 'No especificado',
         id_sistema: relacion?.id_sistema,
         id_equipo: relacion?.id_equipo,
-        id_gerencia: relacion?.id_gerencia
+        id_gerencia: relacion?.id_gerencia,
+        en_revision: enRevisionSet.has(actividad.id_actividad),
+        usuarios_asignados: asignadosCountMap.get(actividad.id_actividad) || 0
       };
     });
+  },
+
+  // Obtener administradores vinculados a una actividad
+  async getAdminsByActividad(idActividad: number): Promise<Usuario[]> {
+    const { data: asigs, error } = await supabase
+      .from('tb_admin_actividades')
+      .select('id_admin')
+      .eq('id_actividad', idActividad);
+    if (error) throw error;
+    const ids = (asigs || []).map(a => a.id_admin);
+    if (ids.length === 0) return [];
+    const { data: usuarios, error: errU } = await supabase
+      .from('tb_usuarios')
+      .select('*')
+      .in('id_usuario', ids)
+      .eq('estado', true);
+    if (errU) throw errU;
+    return usuarios || [];
   },
 
   // Obtener actividades creadas por un admin específico
@@ -1305,6 +1852,17 @@ export const adminActividadesService = {
       }
     });
 
+    const { data: cumplData } = await supabase
+      .from('tb_usuario_actividades')
+      .select('id_actividad, cumplimiento')
+      .in('id_actividad', actividadIds);
+    const enRevisionSet = new Set<number>();
+    const asignadosCountMap = new Map<number, number>();
+    (cumplData || []).forEach((c: any) => {
+      if (c.cumplimiento === 'cumple') enRevisionSet.add(c.id_actividad);
+      asignadosCountMap.set(c.id_actividad, (asignadosCountMap.get(c.id_actividad) || 0) + 1);
+    });
+
     return (actividadesData || []).map((actividad: any) => {
       const relacion = relacionesMap.get(actividad.id_actividad);
       return {
@@ -1316,7 +1874,9 @@ export const adminActividadesService = {
         entregable_nombre: actividad.id_entregable ? (entregablesMap.get(actividad.id_entregable) || 'No especificado') : 'No especificado',
         id_sistema: relacion?.id_sistema,
         id_equipo: relacion?.id_equipo,
-        id_gerencia: relacion?.id_gerencia
+        id_gerencia: relacion?.id_gerencia,
+        en_revision: enRevisionSet.has(actividad.id_actividad),
+        usuarios_asignados: asignadosCountMap.get(actividad.id_actividad) || 0
       };
     });
   }

@@ -11,6 +11,7 @@ export default function MisActividades() {
   
   // Búsqueda
   const [searchTerm, setSearchTerm] = useState('');
+  const [filtroEstado, setFiltroEstado] = useState<string>('');
   
   // Paginación
   const [currentPage, setCurrentPage] = useState(1);
@@ -24,12 +25,46 @@ export default function MisActividades() {
     loadData();
   }, []);
 
+  const groupActividades = (items: any[]) => {
+    const map = new Map<string, any>();
+    items.forEach((a: any) => {
+      const key = `${a.nombre_actividad || ''}|${a.id_sistema || ''}|${a.id_gerencia || ''}|${a.id_equipo || ''}`;
+      const existing = map.get(key);
+      if (!existing) {
+        map.set(key, {
+          ...a,
+          actividad_ids: [a.id_actividad],
+          entregables_lista: a.entregable_nombre ? [a.entregable_nombre] : [],
+          usuarios_asignados: (a as any).usuarios_asignados || 0,
+          trimestres: Array.isArray((a as any).trimestres) ? [...(a as any).trimestres] : (a.trimestre ? [a.trimestre] : []),
+        });
+      } else {
+        existing.actividad_ids.push(a.id_actividad);
+        if (a.entregable_nombre && !existing.entregables_lista.includes(a.entregable_nombre)) {
+          existing.entregables_lista.push(a.entregable_nombre);
+        }
+        existing.usuarios_asignados = (existing.usuarios_asignados || 0) + ((a as any).usuarios_asignados || 0);
+        const states = [existing.estado_actividad, a.estado_actividad];
+        if (states.every((s: any) => s === 'completado')) existing.estado_actividad = 'completado';
+        else if (states.some((s: any) => s === 'reprogramado')) existing.estado_actividad = 'reprogramado';
+        else existing.estado_actividad = 'pendiente';
+        existing.en_revision = existing.en_revision || a.en_revision;
+        if (a.fecha_sustento && (!existing.fecha_sustento || a.fecha_sustento > existing.fecha_sustento)) {
+          existing.fecha_sustento = a.fecha_sustento;
+        }
+        const newTrims = Array.isArray((a as any).trimestres) ? (a as any).trimestres : (a.trimestre ? [a.trimestre] : []);
+        existing.trimestres = Array.from(new Set([...(existing.trimestres || []), ...newTrims])).sort();
+      }
+    });
+    return Array.from(map.values());
+  };
+
   const loadData = async () => {
     try {
       setLoading(true);
       // Cargar todas las actividades creadas por los administradores
       const actData = await adminActividadesService.getAllActividadesFromAdmins();
-      setActividades(actData);
+      setActividades(groupActividades(actData));
       setError('');
     } catch (err: any) {
       console.error('Error al cargar datos:', err);
@@ -40,11 +75,15 @@ export default function MisActividades() {
   };
 
   // Filtrar actividades
-  const actividadesFiltradas = actividades.filter(act =>
-    (act.nombre_actividad?.toLowerCase().includes(searchTerm.toLowerCase()) || false) ||
-    (act.sistema_abrev?.toLowerCase().includes(searchTerm.toLowerCase()) || false) ||
-    (act.equipo_nombre?.toLowerCase().includes(searchTerm.toLowerCase()) || false)
-  );
+  const actividadesFiltradas = actividades.filter(act => {
+    const matchesSearch = (act.nombre_actividad?.toLowerCase().includes(searchTerm.toLowerCase()) || false) ||
+      (act.sistema_abrev?.toLowerCase().includes(searchTerm.toLowerCase()) || false) ||
+      (act.equipo_nombre?.toLowerCase().includes(searchTerm.toLowerCase()) || false);
+    const matchesEstado = !filtroEstado || (filtroEstado === 'revision'
+      ? ((act as any).en_revision && act.estado_actividad !== 'completado')
+      : act.estado_actividad === filtroEstado);
+    return matchesSearch && matchesEstado;
+  });
 
   // Calcular paginación
   const totalPages = Math.ceil(actividadesFiltradas.length / itemsPerPage);
@@ -54,23 +93,25 @@ export default function MisActividades() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm]);
+  }, [searchTerm, filtroEstado]);
 
   const handleVerEntregables = (actividad: ActividadConSistema) => {
     setSelectedActividad(actividad);
     setIsEntregablesModalOpen(true);
   };
 
-  const getEstadoColor = (estado: string | null) => {
+  const getEstadoColor = (estado: string | null, enRevision?: boolean) => {
+    if (enRevision && estado !== 'completado') return 'bg-yellow-100 text-yellow-800';
     switch (estado) {
       case 'completado': return 'bg-blue-100 text-blue-800';
       case 'reprogramado': return 'bg-purple-100 text-purple-800';
-      case 'pendiente': return 'bg-yellow-100 text-yellow-800';
+      case 'pendiente': return 'bg-red-100 text-red-700';
       default: return 'bg-gray-100 text-gray-800';
     }
   };
 
-  const getEstadoLabel = (estado: string | null) => {
+  const getEstadoLabel = (estado: string | null, enRevision?: boolean) => {
+    if (enRevision && estado !== 'completado') return 'En revisión';
     switch (estado) {
       case 'completado': return 'Completado';
       case 'reprogramado': return 'Reprogramado';
@@ -108,7 +149,7 @@ export default function MisActividades() {
       )}
 
       {/* Barra de búsqueda */}
-      <div className="mb-6">
+      <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-3 items-center">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
           <input
@@ -118,6 +159,19 @@ export default function MisActividades() {
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sedapal-lightBlue focus:border-transparent"
           />
+        </div>
+        <div>
+          <select
+            value={filtroEstado}
+            onChange={(e) => setFiltroEstado(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sedapal-lightBlue focus:border-transparent"
+          >
+            <option value="">Todos los estados</option>
+            <option value="pendiente">Pendiente</option>
+            <option value="revision">En revisión</option>
+            <option value="reprogramado">Reprogramado</option>
+            <option value="completado">Completado</option>
+          </select>
         </div>
       </div>
 
@@ -133,6 +187,7 @@ export default function MisActividades() {
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Equipo Responsable</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fecha Máxima</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estado</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Asignados</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Acción</th>
             </tr>
           </thead>
@@ -145,7 +200,7 @@ export default function MisActividades() {
               </tr>
             ) : (
               actividadesPaginadas.map((actividad, index) => (
-                <tr key={actividad.id_actividad} className="hover:bg-gray-50">
+                <tr key={actividad.id_actividad} className="hover:bg-gray-50" style={{ borderRightWidth: 4, borderRightStyle: 'solid', borderRightColor: (actividad as any).usuarios_asignados > 0 ? '#10B981' : '#EF4444' }}>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{startIndex + index + 1}</td>
                   <td className="px-6 py-4 text-sm text-gray-900">{actividad.nombre_actividad || 'N/A'}</td>
                   <td className="px-6 py-4 whitespace-nowrap">
@@ -168,8 +223,13 @@ export default function MisActividades() {
                     })() : '-'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${getEstadoColor(actividad.estado_actividad)}`}>
-                      {getEstadoLabel(actividad.estado_actividad)}
+                    <span className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${getEstadoColor(actividad.estado_actividad, (actividad as any).en_revision)}`}>
+                      {getEstadoLabel(actividad.estado_actividad, (actividad as any).en_revision)}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">
+                    <span className={(actividad as any).usuarios_asignados > 0 ? 'text-green-700 font-semibold' : 'text-red-600 font-semibold'}>
+                      {(actividad as any).usuarios_asignados || 0}
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
@@ -225,6 +285,7 @@ export default function MisActividades() {
           isOpen={isEntregablesModalOpen}
           onClose={() => setIsEntregablesModalOpen(false)}
           entregableNombre={selectedActividad.entregable_nombre}
+          entregablesNombres={(selectedActividad as any).entregables_lista}
           activityName={selectedActividad.nombre_actividad}
           activityMaxDate={selectedActividad.fecha_sustento || null}
           activityCompletionStatus={selectedActividad.estado_actividad || null}

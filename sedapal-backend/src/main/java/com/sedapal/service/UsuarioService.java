@@ -33,10 +33,14 @@ public class UsuarioService {
             throw new RuntimeException("Ya existe un usuario con el email: " + email);
         }
 
+        // Normalizar nombres
+        String nombreN = normalizarNombre(nombre);
+        String apellidoN = normalizarNombre(apellido);
+
         // Crear usuario con la contraseña proporcionada
         Usuario admin = new Usuario();
-        admin.setNombre(nombre);
-        admin.setApellido(apellido);
+        admin.setNombre(nombreN);
+        admin.setApellido(apellidoN);
         admin.setEmail(email);
         admin.setContrasena(contrasena);
         admin.setRol(Usuario.Rol.admin);
@@ -54,6 +58,15 @@ public class UsuarioService {
         adminSistemaRepository.save(adminSistema);
         log.info("✅ Sistema {} asignado al administrador {}", idSistema, savedAdmin.getId());
 
+        // Enviar credenciales por email al administrador
+        try {
+            emailService.enviarCredenciales(email, nombre, apellido, contrasena, Usuario.Rol.admin);
+            log.info("✅ Email de credenciales (admin) enviado a: {}", email);
+        } catch (Exception e) {
+            log.error("❌ Error al enviar email a {}: {}", email, e.getMessage());
+            // No fallar la creación si falla el email
+        }
+ 
         return UsuarioDTO.UsuarioResponse.fromEntity(savedAdmin);
     }
 
@@ -70,10 +83,14 @@ public class UsuarioService {
         // Generar contraseña: User + inicial nombre + inicial apellido + 2 dígitos
         String contrasena = generarContrasenaUsuario(nombre, apellido);
 
+        // Normalizar nombres
+        String nombreN = normalizarNombre(nombre);
+        String apellidoN = normalizarNombre(apellido);
+
         // Crear usuario
         Usuario usuario = new Usuario();
-        usuario.setNombre(nombre);
-        usuario.setApellido(apellido);
+        usuario.setNombre(nombreN);
+        usuario.setApellido(apellidoN);
         usuario.setEmail(email);
         usuario.setContrasena(contrasena);
         usuario.setRol(Usuario.Rol.usuario);
@@ -110,10 +127,14 @@ public class UsuarioService {
         // Generar contraseña: User + inicial nombre + inicial apellido + 2 dígitos
         String contrasena = generarContrasenaUsuario(nombre, apellido);
 
+        // Normalizar nombres
+        String nombreN = normalizarNombre(nombre);
+        String apellidoN = normalizarNombre(apellido);
+
         // Crear usuario
         Usuario usuario = new Usuario();
-        usuario.setNombre(nombre);
-        usuario.setApellido(apellido);
+        usuario.setNombre(nombreN);
+        usuario.setApellido(apellidoN);
         usuario.setEmail(email);
         usuario.setContrasena(contrasena);
         usuario.setRol(Usuario.Rol.usuario);
@@ -192,5 +213,19 @@ public class UsuarioService {
         int numero = 10 + random.nextInt(90); // 10-99
         
         return "User" + inicialNombre + inicialApellido + numero;
+    }
+
+    private String normalizarNombre(String s) {
+        if (s == null) return null;
+        s = s.trim().toLowerCase();
+        String[] parts = s.split("\\s+");
+        StringBuilder sb = new StringBuilder();
+        for (String p : parts) {
+            if (p.isEmpty()) continue;
+            sb.append(Character.toUpperCase(p.charAt(0)))
+              .append(p.substring(1))
+              .append(" ");
+        }
+        return sb.toString().trim();
     }
 }

@@ -5,9 +5,12 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import RegisterAdmin from './pages/RegisterAdmin';
 import MisActividadesUsuario from './pages/MisActividadesUsuario';
+import { useExpiryGuard } from './hooks/useExpiryGuard';
+import ExpiredScreen from './components/ExpiredScreen';
 
 function AppRoutes() {
   const { user, loading } = useAuth();
+  const { expired, expiresAt } = useExpiryGuard();
 
   if (loading) {
     return (
@@ -15,6 +18,10 @@ function AppRoutes() {
         <div className="text-gray-600">Cargando...</div>
       </div>
     );
+  }
+
+  if (expired) {
+    return <ExpiredScreen until={expiresAt} />;
   }
 
   // Si no hay usuario, mostrar login
@@ -51,11 +58,13 @@ function AppRoutes() {
       );
     
     case 'usuario':
-      // Usuario solo ve sus actividades
+      // Usuario ve su dashboard y sus actividades
       return (
         <Routes>
-          <Route path="/" element={<MisActividadesUsuario idUsuario={user.id_usuario} />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/actividades" element={<MisActividadesUsuario idUsuario={user.id_usuario} />} />
+          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       );
     

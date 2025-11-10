@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { CheckCircle, FileText } from 'lucide-react';
 import Modal from './Modal';
 import confetti from 'canvas-confetti';
@@ -6,24 +6,50 @@ import confetti from 'canvas-confetti';
 interface ViewEntregablesModalProps {
   isOpen: boolean;
   onClose: () => void;
-  entregableNombre?: string; // Nombre del tipo de entregable
+  entregableNombre?: string;
+  entregablesNombres?: string[];
+  // Nuevo: lista detallada (id y nombre) para numerar y permitir quitar
+  entregablesDetalle?: { id: number; nombre: string }[];
+  onRemoveEntregable?: (id: number) => Promise<void>;
   activityName?: string;
-  activityMaxDate?: string | null; // Fecha máxima de sustento (fecha_sustento)
-  activityCompletionStatus?: 'pendiente' | 'reprogramado' | 'completado' | null; // Estado de la actividad
+  activityMaxDate?: string | null;
+  activityCompletionStatus?: 'pendiente' | 'reprogramado' | 'completado' | null;
+  userFulfillmentStatus?: 'cumple' | 'no_cumple' | 'pendiente' | null;
   onChangeStatus: (status: 'conforme') => Promise<void>;
   isAdmin?: boolean;
+  canApprove?: boolean;
+  // Admin: añadir/editar entregables
+  addOptions?: { id: number; nombre: string }[];
+  onAddEntregable?: (id: number) => Promise<void>;
+  canModifyEntregables?: boolean;
 }
 
 export default function ViewEntregablesModal({ 
   isOpen, 
   onClose, 
   entregableNombre,
+  entregablesNombres,
+  entregablesDetalle,
+  onRemoveEntregable,
   activityName,
   activityMaxDate,
   activityCompletionStatus,
+  userFulfillmentStatus,
   onChangeStatus,
-  isAdmin = true
+  isAdmin = true,
+  canApprove = true,
+  addOptions,
+  onAddEntregable,
+  canModifyEntregables = true
 }: ViewEntregablesModalProps) {
+  const [addId, setAddId] = useState<number | undefined>(undefined);
+  useEffect(() => {
+    if (addOptions && addOptions.length > 0) {
+      setAddId(addOptions[0].id);
+    } else {
+      setAddId(undefined);
+    }
+  }, [addOptions]);
   const [changingStatus, setChangingStatus] = useState(false);
   const [error, setError] = useState('');
 
@@ -57,17 +83,27 @@ export default function ViewEntregablesModal({
     const hoy = new Date();
     hoy.setHours(0, 0, 0, 0);
 
-    // Si la actividad está completada, es "Cumplió"
+    // 1) Cerrado por el admin
     if (activityCompletionStatus === 'completado') {
       return { 
         color: 'text-green-700', 
-        texto: '✅ Cumplió', 
+        texto: '✅ Cumplió (Conforme)', 
         bgColor: 'bg-green-50', 
         borderColor: 'border-green-500' 
       };
     }
 
-    // Si la fecha ya pasó sin completarse, es "No cumplió"
+    // 2) Usuario marcó Cumplió pero aún sin conformidad
+    if (!isAdmin && userFulfillmentStatus === 'cumple') {
+      return {
+        color: 'text-blue-700',
+        texto: '🕓 En revisión',
+        bgColor: 'bg-blue-50',
+        borderColor: 'border-blue-500'
+      };
+    }
+
+    // 3) Si la fecha ya pasó sin completarse, es "No cumplió"
     if (activityMaxDate) {
       const fechaMaxima = new Date(activityMaxDate + 'T00:00:00');
       if (hoy > fechaMaxima) {
@@ -80,7 +116,7 @@ export default function ViewEntregablesModal({
       }
     }
 
-    // De lo contrario, está pendiente
+    // 4) Pendiente
     return { 
       color: 'text-yellow-700', 
       texto: '⌛ Pendiente', 
@@ -111,28 +147,73 @@ export default function ViewEntregablesModal({
           </div>
         )}
 
-        {/* Tipo de Entregable con Estado */}
-        <div className="bg-white border-2 border-gray-200 rounded-lg p-4">
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex items-start gap-3 flex-1">
-              <FileText className="text-sedapal-lightBlue mt-1" size={32} />
-              <div className="flex-1">
-                <h3 className="text-lg font-semibold text-gray-900 mb-1">
-                  Tipo de Entregable
-                </h3>
-                <p className="text-sm text-gray-700">
-                  {entregableNombre || 'No especificado'}
-                </p>
-              </div>
+        {/* Entregables (estilo tabla simple, solo bordes celestes) */}
+        <div className="border-2 border-sedapal-lightBlue rounded-lg">
+          <div className="flex items-center justify-between px-4 py-3 border-b-2 border-sedapal-lightBlue">
+            <div className="flex items-center gap-2 text-sedapal-lightBlue font-semibold">
+              <FileText size={18} />
+              <span>Entregables</span>
             </div>
-            
             {/* Badge de Estado */}
-            <div className={`px-4 py-2 rounded-lg border-2 ${estado.bgColor} ${estado.borderColor} flex items-center gap-2`}>
-              <span className={`text-sm font-bold ${estado.color}`}>
-                {estado.texto}
-              </span>
+            <div className={`px-3 py-1 rounded border ${estado.borderColor}`}>
+              <span className={`text-xs font-bold ${estado.color}`}>{estado.texto}</span>
             </div>
           </div>
+          <div className="divide-y divide-sedapal-lightBlue/40">
+            {Array.isArray(entregablesDetalle) && entregablesDetalle.length > 0 ? (
+              entregablesDetalle.map((e, i) => (
+                <div key={e.id} className="px-4 py-2 text-sm text-gray-800 flex items-center justify-between gap-3">
+                  <div className="flex-1">
+                    <span className="font-semibold mr-2 text-sedapal-blue">{i + 1}.</span>
+                    <span>{e.nombre}</span>
+                  </div>
+                  {isAdmin && onRemoveEntregable && canModifyEntregables && (
+                    <button
+                      onClick={() => onRemoveEntregable(e.id)}
+                      className="px-2 py-1 text-xs bg-red-500 text-white rounded hover:bg-red-600"
+                      title="Quitar entregable"
+                    >
+                      Quitar
+                    </button>
+                  )}
+                </div>
+              ))
+            ) : Array.isArray(entregablesNombres) && entregablesNombres.length > 0 ? (
+              entregablesNombres.map((n, i) => (
+                <div key={i} className="px-4 py-2 text-sm text-gray-800">
+                  <span className="font-semibold mr-2 text-sedapal-blue">{i + 1}.</span>
+                  {n}
+                </div>
+              ))
+            ) : (
+              <div className="px-4 py-2 text-sm text-gray-800">{entregableNombre || 'No especificado'}</div>
+            )}
+          </div>
+
+          {/* Admin: añadir entregable */}
+          {isAdmin && canModifyEntregables && onAddEntregable && (addOptions && addOptions.length > 0) && (
+            <div className="px-4 py-3 border-t-2 border-sedapal-lightBlue">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                <span className="text-sm text-gray-700 shrink-0">Añadir entregable:</span>
+                <select
+                  className="flex-1 min-w-0 w-full sm:w-96 max-w-full px-2 py-1 border rounded"
+                  value={addId ?? ''}
+                  onChange={(e) => setAddId(parseInt(e.target.value))}
+                >
+                  {addOptions.map(opt => (
+                    <option key={opt.id} value={opt.id}>{opt.nombre}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={async () => { if (addId) await onAddEntregable(addId); }}
+                  disabled={!addId}
+                  className="px-3 py-1 bg-sedapal-lightBlue text-white rounded hover:bg-sedapal-blue text-sm disabled:opacity-50"
+                >
+                  Agregar
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Error message */}
@@ -147,12 +228,17 @@ export default function ViewEntregablesModal({
           <div className="border-t border-gray-200 pt-4">
             <button
               onClick={handleStatusChange}
-              disabled={changingStatus}
+              disabled={changingStatus || (isAdmin && !canApprove)}
               className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 transition disabled:opacity-50 disabled:cursor-not-allowed font-medium shadow-md hover:shadow-lg"
             >
               <CheckCircle size={22} />
-              {changingStatus ? 'Procesando...' : (isAdmin ? 'Marcar como Conforme' : 'Marcar como Completado')}
+              {changingStatus ? 'Procesando...' : (isAdmin ? 'Marcar como Conforme' : "Marcar 'Cumplió'")}
             </button>
+            {isAdmin && !canApprove && (
+              <p className="text-xs text-gray-500 mt-2">
+                Esperando que el usuario marque <strong>“Cumplió”</strong> para habilitar la validación.
+              </p>
+            )}
           </div>
         )}
 

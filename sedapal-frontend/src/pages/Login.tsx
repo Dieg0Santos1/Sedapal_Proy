@@ -34,9 +34,9 @@ export default function Login() {
         {/* Login Form */}
         <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md">
           {/* Logo y Título */}
-          <div className="text-center mb-8">
+            <div className="text-center mb-8">
             <div className="flex items-center justify-center mb-4">
-              <SedapalLogo size="lg" />
+              <img src="/assets/Logo_Sedapal.png" alt="SEDAPAL" className="h-20 w-auto object-contain" />
             </div>
             <p className="text-sedapal-darkGray text-sm">Sistema de Gestión de Actividades</p>
           </div>

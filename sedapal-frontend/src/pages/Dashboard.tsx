@@ -3,14 +3,16 @@ import { useNavigate } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { Clock, FileText, Activity, Users, UserPlus } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { actividadesService, sistemasService, adminActividadesService } from '../services/api';
+import { actividadesService, sistemasService, adminActividadesService, usuarioActividadesService, adminSistemasService } from '../services/api';
 import type { ActividadConSistema, Sistema } from '../services/api';
 import SedapalLogo from '../components/SedapalLogo';
 import MisSistemas from './MisSistemas';
 import MisSistemasAdmin from './MisSistemasAdmin';
 import MisActividades from './MisActividades';
 import MisActividadesAdmin from './MisActividadesAdmin';
+import MisActividadesUsuario from './MisActividadesUsuario';
 import Reporte from './Reporte';
+import Configuracion from './Configuracion';
 
 export default function Dashboard() {
   const { user, signOut } = useAuth();
@@ -18,8 +20,9 @@ export default function Dashboard() {
   // Admin inicia en 'sistemas', SuperAdmin en 'dashboard'
   const [activeView, setActiveView] = useState(user?.rol === 'admin' ? 'sistemas' : 'dashboard');
   const [actividades, setActividades] = useState<ActividadConSistema[]>([]);
-  const [sistemas, setSistemas] = useState<Sistema[]>([]);
+const [sistemas, setSistemas] = useState<Sistema[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedSistemaId, setSelectedSistemaId] = useState<number>(0);
 
   useEffect(() => {
     loadData();
@@ -30,10 +33,12 @@ export default function Dashboard() {
       setLoading(true);
       // SuperAdmin ve actividades creadas por admins, otros roles ven sus propias actividades
       const [actData, sisData] = await Promise.all([
-        user?.rol === 'superadmin' 
+        user?.rol === 'superadmin'
           ? adminActividadesService.getAllActividadesFromAdmins()
-          : actividadesService.getAll(),
-        sistemasService.getAll()
+          : user?.rol === 'usuario'
+            ? usuarioActividadesService.getActividadesByUsuarioOTeam(user?.id_usuario || 0)
+            : adminActividadesService.getActividadesByAdmin(user?.id_usuario || 0),
+        user?.rol === 'admin' ? adminSistemasService.getSistemasByAdmin(user?.id_usuario || 0) : sistemasService.getAll()
       ]);
       setActividades(actData);
       setSistemas(sisData);
@@ -53,26 +58,28 @@ export default function Dashboard() {
     }
   };
 
-  // Calcular datos reales para los gráficos
-  const dataBySystem = sistemas.map(sistema => {
-    const count = actividades.filter(act => act.sistema_abrev === sistema.abrev).length;
-    return {
-      name: sistema.abrev || 'N/A',
-      actividades: count
-    };
-  }).filter(item => item.actividades > 0);
+// Calcular datos reales para los gráficos
+  const actividadesFiltradasSistema = selectedSistemaId ? actividades.filter(act => act.id_sistema === selectedSistemaId) : actividades;
+
+  const dataBySystem = Object.entries(
+    actividadesFiltradasSistema.reduce((acc: Record<string, number>, act: any) => {
+      const key = (act.sistema_abrev || 'N/A').trim();
+      acc[key] = (acc[key] || 0) + 1;
+      return acc;
+    }, {})
+  ).map(([name, actividades]) => ({ name, actividades }));
 
   const dataByQuarter = [1, 2, 3, 4].map(trimestre => {
-    const count = actividades.filter(act => act.trimestre === trimestre).length;
+const count = actividadesFiltradasSistema.filter(act => (Array.isArray((act as any).trimestres) ? (act as any).trimestres.includes(trimestre) : act.trimestre === trimestre)).length;
     return {
       name: `${trimestre}° Trim.`,
       actividades: count
     };
   });
 
-  const pendientes = actividades.filter(act => act.estado_actividad === 'pendiente').length;
-  const reprogramadas = actividades.filter(act => act.estado_actividad === 'reprogramado').length;
-  const completadas = actividades.filter(act => act.estado_actividad === 'completado').length;
+const pendientes = actividadesFiltradasSistema.filter(act => act.estado_actividad === 'pendiente').length;
+  const reprogramadas = actividadesFiltradasSistema.filter(act => act.estado_actividad === 'reprogramado').length;
+  const completadas = actividadesFiltradasSistema.filter(act => act.estado_actividad === 'completado').length;
 
   const statusData = [
     { name: 'Pendiente', value: pendientes, color: '#EAB308' },
@@ -117,8 +124,8 @@ export default function Dashboard() {
             <SedapalLogo size="md" />
           </div>
           <nav className="py-4 flex md:flex-col overflow-x-auto md:overflow-x-visible">
-            {/* Dashboard solo para SuperAdmin */}
-            {user?.rol === 'superadmin' && (
+            {/* Dashboard - Visible para SuperAdmin, Admin y Usuario */}
+            {(user?.rol === 'superadmin' || user?.rol === 'usuario' || user?.rol === 'admin') && (
               <button
                 onClick={() => setActiveView('dashboard')}
                 className={`whitespace-nowrap md:w-full text-left px-6 py-3 text-sm font-medium transition ${
@@ -131,17 +138,19 @@ export default function Dashboard() {
               </button>
             )}
             
-            {/* Sistemas - Todos pueden ver */}
-            <button
-              onClick={() => setActiveView('sistemas')}
-              className={`whitespace-nowrap md:w-full text-left px-6 py-3 text-sm font-medium transition ${
-                activeView === 'sistemas'
-                  ? 'bg-sedapal-cyan text-white'
-                  : 'text-gray-700 hover:bg-gray-100'
-              }`}
-            >
-              Mis sistemas
-            </button>
+            {/* Sistemas - SuperAdmin y Admin */}
+            {(user?.rol === 'superadmin' || user?.rol === 'admin') && (
+              <button
+                onClick={() => setActiveView('sistemas')}
+                className={`whitespace-nowrap md:w-full text-left px-6 py-3 text-sm font-medium transition ${
+                  activeView === 'sistemas'
+                    ? 'bg-sedapal-cyan text-white'
+                    : 'text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                Mis sistemas
+              </button>
+            )}
             
             {/* Actividades - Todos pueden ver */}
             <button
@@ -155,17 +164,29 @@ export default function Dashboard() {
               Mis actividades
             </button>
             
-            {/* Reporte solo para SuperAdmin */}
+            {/* Reporte - para todos los roles */}
+            <button
+              onClick={() => setActiveView('reporte')}
+              className={`whitespace-nowrap md:w-full text-left px-6 py-3 text-sm font-medium transition ${
+                activeView === 'reporte'
+                  ? 'bg-sedapal-cyan text-white'
+                  : 'text-gray-700 hover:bg-gray-100'
+              }`}
+            >
+              Reporte
+            </button>
+
+            {/* Configuración - solo SuperAdmin */}
             {user?.rol === 'superadmin' && (
               <button
-                onClick={() => setActiveView('reporte')}
+                onClick={() => setActiveView('configuracion')}
                 className={`whitespace-nowrap md:w-full text-left px-6 py-3 text-sm font-medium transition ${
-                  activeView === 'reporte'
+                  activeView === 'configuracion'
                     ? 'bg-sedapal-cyan text-white'
                     : 'text-gray-700 hover:bg-gray-100'
                 }`}
               >
-                Reporte
+                Configuración
               </button>
             )}
           </nav>
@@ -173,7 +194,7 @@ export default function Dashboard() {
 
         {/* Main Content */}
         <main className="flex-1">
-          {activeView === 'dashboard' && user?.rol === 'superadmin' && (
+{activeView === 'dashboard' && (user?.rol === 'superadmin' || user?.rol === 'usuario' || user?.rol === 'admin') && (
             <div className="p-4 sm:p-8">
           {loading ? (
             <div className="flex items-center justify-center h-64">
@@ -181,6 +202,24 @@ export default function Dashboard() {
             </div>
           ) : (
             <>
+          {user?.rol === 'admin' && (
+            <div className="mb-4 grid grid-cols-1 sm:grid-cols-4 items-end gap-3">
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-medium text-sedapal-blue mb-1">Filtrar por sistema</label>
+                <select
+                  className="w-full px-3 py-2 border-2 border-sedapal-cyan text-sedapal-blue rounded-lg bg-white focus:ring-2 focus:ring-sedapal-lightBlue focus:border-sedapal-lightBlue hover:border-sedapal-lightBlue/70 transition"
+                  value={selectedSistemaId}
+                  onChange={(e)=>setSelectedSistemaId(parseInt(e.target.value))}
+                >
+                  <option value={0}>Todos</option>
+                  {sistemas.map(s=>(<option key={s.id} value={s.id}>{s.abrev} - {s.desc_sistema}</option>))}
+                </select>
+              </div>
+              <div className="sm:col-span-2 text-xs text-gray-500">
+                Consejo: Selecciona un sistema para ver gráficos y métricas específicas.
+              </div>
+            </div>
+          )}
           {/* Tarjetas de resumen */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
             {/* Gráfico de Estado */}
@@ -325,9 +364,10 @@ export default function Dashboard() {
             user?.rol === 'superadmin' ? <MisSistemas /> : <MisSistemasAdmin idAdmin={user?.id_usuario || 0} />
           )}
           {activeView === 'actividades' && (
-            user?.rol === 'superadmin' ? <MisActividades /> : <MisActividadesAdmin idAdmin={user?.id_usuario || 0} />
+            user?.rol === 'superadmin' ? <MisActividades /> : (user?.rol === 'usuario' ? <MisActividadesUsuario idUsuario={user?.id_usuario || 0} /> : <MisActividadesAdmin idAdmin={user?.id_usuario || 0} />)
           )}
-          {activeView === 'reporte' && user?.rol === 'superadmin' && <Reporte />}
+          {activeView === 'reporte' && <Reporte />}
+          {activeView === 'configuracion' && user?.rol === 'superadmin' && <Configuracion />}
         </main>
       </div>
     </div>

@@ -81,4 +81,106 @@ public class NotificacionController {
     }
 
     public record TestEmailRequest(String email) {}
+
+    // ================= Nuevas notificaciones =================
+    public record UsuarioCumplioRequest(
+        String adminEmail,
+        String usuarioNombre,
+        String usuarioEmail,
+        String nombreActividad,
+        String entregableNombre,
+        String sistemaAbrev,
+        String equipoNombre,
+        String fechaMaxima
+    ) {}
+
+    @PostMapping("/usuario-cumplio")
+    public ResponseEntity<String> notificarUsuarioCumplio(@RequestBody UsuarioCumplioRequest req) {
+        try {
+            log.info("📧 UsuarioCumplio -> adminEmail={}, usuario={}, actividad={}", req.adminEmail(), req.usuarioEmail(), req.nombreActividad());
+            if (req.adminEmail() == null || req.adminEmail().trim().isEmpty()) {
+                return ResponseEntity.badRequest().body("adminEmail requerido");
+            }
+            emailService.enviarNotificacionUsuarioCumplio(
+                req.adminEmail().trim(), req.usuarioNombre(), req.usuarioEmail(),
+                req.nombreActividad(), req.entregableNombre(), req.sistemaAbrev(),
+                req.equipoNombre(), req.fechaMaxima()
+            );
+            return ResponseEntity.ok("Notificación enviada al admin");
+        } catch (Exception e) {
+            log.error("❌ Error al notificar cumplimiento", e);
+            String msg = e.getClass().getSimpleName() + ": " + e.getMessage();
+            if (e.getCause() != null) msg += " | causa: " + e.getCause().getClass().getSimpleName() + ": " + e.getCause().getMessage();
+            return ResponseEntity.internalServerError().body(msg);
+        }
+    }
+
+    public record ConformeRequest(
+        java.util.List<String> usuariosDestino,
+        java.util.List<String> superadminsDestino,
+        String nombreActividad,
+        String entregableNombre,
+        String sistemaAbrev,
+        String equipoNombre,
+        String fechaMaxima
+    ) {}
+
+    @PostMapping("/conforme")
+    public ResponseEntity<String> notificarConforme(@RequestBody ConformeRequest req) {
+        try {
+            emailService.enviarNotificacionConforme(
+                req.usuariosDestino(), req.superadminsDestino(),
+                req.nombreActividad(), req.entregableNombre(), req.sistemaAbrev(),
+                req.equipoNombre(), req.fechaMaxima()
+            );
+            return ResponseEntity.ok("Notificación de conforme enviada");
+        } catch (Exception e) {
+            log.error("❌ Error al notificar conforme: {}", e.getMessage());
+            return ResponseEntity.internalServerError().body("Error: " + e.getMessage());
+        }
+    }
+
+    // ================= Usuario creado con equipo/gerencia =================
+    public record UsuarioCreadoRequest(
+        String email,
+        String nombreUsuario,
+        String contrasena,
+        String gerenciaNombre,
+        String equipoNombre
+    ) {}
+
+    @PostMapping("/usuario-creado")
+    public ResponseEntity<String> notificarUsuarioCreado(@RequestBody UsuarioCreadoRequest req) {
+        try {
+            emailService.enviarUsuarioCreado(
+                req.email(), req.nombreUsuario(), req.contrasena(),
+                req.gerenciaNombre(), req.equipoNombre()
+            );
+            return ResponseEntity.ok("Notificación de usuario creado enviada");
+        } catch (Exception e) {
+            log.error("❌ Error al notificar usuario creado: {}", e.getMessage());
+            return ResponseEntity.internalServerError().body("Error: " + e.getMessage());
+        }
+    }
+
+    // ================= Asignación de sistema a admin =================
+    public record AsignacionSistemaRequest(
+        String email,
+        String nombreAdmin,
+        String sistemaAbrev,
+        String sistemaNombre
+    ) {}
+
+    @PostMapping("/asignacion-sistema")
+    public ResponseEntity<String> notificarAsignacionSistema(@RequestBody AsignacionSistemaRequest req) {
+        try {
+            emailService.enviarAsignacionSistema(
+                req.email(), req.nombreAdmin(), req.sistemaAbrev(), req.sistemaNombre()
+            );
+            return ResponseEntity.ok("Notificación de asignación de sistema enviada");
+        } catch (Exception e) {
+            log.error("❌ Error al notificar asignación de sistema: {}", e.getMessage());
+            return ResponseEntity.internalServerError().body("Error: " + e.getMessage());
+        }
+    }
 }

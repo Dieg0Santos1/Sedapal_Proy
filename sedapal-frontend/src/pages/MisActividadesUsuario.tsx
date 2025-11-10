@@ -1,10 +1,8 @@
-import { ClipboardCheck, LogOut } from 'lucide-react';
+import { ClipboardCheck } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { usuarioActividadesService, actividadesService } from '../services/api';
+import { usuarioActividadesService, adminActividadesService, notificacionesService } from '../services/api';
 import type { ActividadConSistema } from '../services/api';
-import SedapalLogo from '../components/SedapalLogo';
 import ViewEntregablesModal from '../components/ViewEntregablesModal';
 import confetti from 'canvas-confetti';
 
@@ -13,23 +11,55 @@ interface MisActividadesUsuarioProps {
 }
 
 export default function MisActividadesUsuario({ idUsuario }: MisActividadesUsuarioProps) {
-  const { user, signOut } = useAuth();
-  const navigate = useNavigate();
+  const { user } = useAuth();
   const [actividades, setActividades] = useState<ActividadConSistema[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [isEntregablesModalOpen, setIsEntregablesModalOpen] = useState(false);
   const [selectedActividad, setSelectedActividad] = useState<ActividadConSistema | null>(null);
+  const [filtroEstado, setFiltroEstado] = useState<string>('');
 
   useEffect(() => {
     loadActividades();
+    const t = setInterval(loadActividades, 15000); // refresco periódico
+    const onVis = () => { if (document.visibilityState === 'visible') loadActividades(); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVis); };
   }, [idUsuario]);
+
+  const groupActividades = (items: any[]) => {
+    const map = new Map<string, any>();
+    items.forEach((a: any) => {
+      const key = `${a.nombre_actividad || ''}|${a.id_sistema || ''}|${a.id_gerencia || ''}|${a.id_equipo || ''}`;
+      const existing = map.get(key);
+      if (!existing) {
+        map.set(key, {
+          ...a,
+          actividad_ids: [a.id_actividad],
+          entregables_lista: a.entregable_nombre ? [a.entregable_nombre] : [],
+          // conservar id_actividad principal (el primero)
+          id_actividad: a.id_actividad
+        });
+      } else {
+        existing.actividad_ids.push(a.id_actividad);
+        if (a.entregable_nombre && !existing.entregables_lista.includes(a.entregable_nombre)) {
+          existing.entregables_lista.push(a.entregable_nombre);
+        }
+        // fecha más próxima (o mayor) como referencia visual
+        if (a.fecha_sustento && (!existing.fecha_sustento || a.fecha_sustento > existing.fecha_sustento)) {
+          existing.fecha_sustento = a.fecha_sustento;
+        }
+        existing.en_revision = existing.en_revision || a.en_revision;
+      }
+    });
+    return Array.from(map.values());
+  };
 
   const loadActividades = async () => {
     try {
       setLoading(true);
-      const data = await usuarioActividadesService.getActividadesByUsuario(idUsuario);
-      setActividades(data);
+      const data = await usuarioActividadesService.getActividadesByUsuarioOTeam(idUsuario);
+      setActividades(groupActividades(data));
       setError('');
     } catch (err: any) {
       setError('Error al cargar actividades: ' + err.message);
@@ -39,14 +69,6 @@ export default function MisActividadesUsuario({ idUsuario }: MisActividadesUsuar
   };
 
 
-  const handleSignOut = async () => {
-    try {
-      await signOut();
-      navigate('/login');
-    } catch (error) {
-      console.error('Error al cerrar sesión:', error);
-    }
-  };
 
   const handleOpenEntregables = (actividad: ActividadConSistema) => {
     setSelectedActividad(actividad);
@@ -57,67 +79,58 @@ export default function MisActividadesUsuario({ idUsuario }: MisActividadesUsuar
     if (!selectedActividad) return;
 
     try {
-      await actividadesService.update(selectedActividad.id_actividad, {
-        estado_actividad: 'completado'
-      });
-      
+      // 1) Solo marcar cumplimiento del usuario; no cerrar la actividad.
+      await usuarioActividadesService.updateCumplimiento(
+        idUsuario,
+        selectedActividad.id_actividad,
+        'cumple'
+      );
+
+      // 2) Notificar al/los admin(s)
+      try {
+        const admins = await adminActividadesService.getAdminsByActividad(selectedActividad.id_actividad);
+        if (admins && admins.length > 0 && user) {
+          await notificacionesService.enviarUsuarioCumplio({
+            adminEmail: admins[0].email,
+            usuarioNombre: `${user.nombre} ${user.apellido}`,
+            usuarioEmail: user.email,
+            nombreActividad: selectedActividad.nombre_actividad || 'Actividad',
+            entregableNombre: selectedActividad.entregable_nombre || 'No especificado',
+            sistemaAbrev: selectedActividad.sistema_abrev || 'N/A',
+            equipoNombre: selectedActividad.equipo_nombre || 'N/A',
+            fechaMaxima: selectedActividad.fecha_sustento || null
+          });
+        }
+      } catch (e) {
+        console.warn('No se pudo notificar al admin:', e);
+      }
+
       await loadActividades();
       setIsEntregablesModalOpen(false);
-      
+
       confetti({
-        particleCount: 100,
-        spread: 70,
+        particleCount: 80,
+        spread: 60,
         origin: { y: 0.6 },
         colors: ['#10B981', '#34D399', '#6EE7B7']
       });
     } catch (err: any) {
-      throw new Error(err.message || 'Error al marcar como completado');
+      throw new Error(err.message || 'Error al marcar cumplimiento');
     }
   };
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50">
-        <header className="bg-white shadow-sm border-b border-gray-200">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex justify-between items-center">
-            <div className="flex items-center space-x-3">
-              <SedapalLogo size="sm" />
-              <h1 className="text-lg sm:text-xl font-bold text-sedapal-blue">Mis Actividades</h1>
-            </div>
-            <span className="text-sm text-gray-600">{user?.email}</span>
-          </div>
-        </header>
-        <div className="p-8 flex items-center justify-center">
-          <div className="text-gray-600">Cargando actividades...</div>
-        </div>
+      <div className="p-8 flex items-center justify-center">
+        <div className="text-gray-600">Cargando actividades...</div>
       </div>
     );
   }
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex justify-between items-center">
-          <div className="flex items-center space-x-3">
-            <SedapalLogo size="sm" />
-            <h1 className="text-lg sm:text-xl font-bold text-sedapal-blue">Mis Actividades</h1>
-          </div>
-          <div className="flex items-center space-x-4">
-            <span className="text-sm text-gray-600 hidden sm:inline">{user?.nombre} {user?.apellido}</span>
-            <button
-              onClick={handleSignOut}
-              className="flex items-center bg-sedapal-lightBlue hover:bg-sedapal-blue text-white px-4 py-2 rounded-lg transition text-sm font-medium"
-            >
-              <LogOut size={18} className="sm:mr-2" />
-              <span className="hidden sm:inline">Cerrar Sesión</span>
-            </button>
-          </div>
-        </div>
-      </header>
-
       <div className="p-8">
-      {/* Header */}
+      {/* Título de la página */}
       <div className="flex items-center mb-6">
         <ClipboardCheck className="text-sedapal-lightBlue mr-3" size={32} />
         <h1 className="text-3xl font-bold text-sedapal-lightBlue">Mis Actividades Asignadas</h1>
@@ -129,6 +142,21 @@ export default function MisActividadesUsuario({ idUsuario }: MisActividadesUsuar
           {error}
         </div>
       )}
+
+      {/* Filtros */}
+      <div className="mb-4">
+        <select
+          value={filtroEstado}
+          onChange={(e) => setFiltroEstado(e.target.value)}
+          className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sedapal-lightBlue focus:border-transparent"
+        >
+          <option value="">Todos los estados</option>
+          <option value="pendiente">Pendiente</option>
+          <option value="revision">En revisión</option>
+          <option value="reprogramado">Reprogramado</option>
+          <option value="completado">Completado</option>
+        </select>
+      </div>
 
       {/* Tabla */}
       <div className="bg-white rounded-lg shadow overflow-x-auto">
@@ -146,14 +174,24 @@ export default function MisActividadesUsuario({ idUsuario }: MisActividadesUsuar
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {actividades.length === 0 ? (
+            {actividades.filter(act => {
+              if (!filtroEstado) return true;
+              if (filtroEstado === 'revision') return (act as any).en_revision && act.estado_actividad !== 'completado';
+              return act.estado_actividad === filtroEstado;
+            }).length === 0 ? (
               <tr>
                 <td colSpan={8} className="px-6 py-8 text-center text-gray-500">
                   No tienes actividades asignadas
                 </td>
               </tr>
             ) : (
-              actividades.map((actividad: any) => (
+              actividades
+                .filter((actividad: any) => {
+                  if (!filtroEstado) return true;
+                  if (filtroEstado === 'revision') return actividad.en_revision && actividad.estado_actividad !== 'completado';
+                  return actividad.estado_actividad === filtroEstado;
+                })
+                .map((actividad: any) => (
                 <tr key={actividad.id_actividad} className="hover:bg-gray-50">
                   <td className="px-6 py-4 text-sm text-gray-900">{actividad.nombre_actividad || 'N/A'}</td>
                   <td className="px-6 py-4 whitespace-nowrap">
@@ -181,15 +219,20 @@ export default function MisActividadesUsuario({ idUsuario }: MisActividadesUsuar
                     })() : '-'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                      actividad.estado_actividad === 'completado' ? 'bg-blue-100 text-blue-800' :
-                      actividad.estado_actividad === 'reprogramado' ? 'bg-purple-100 text-purple-800' :
-                      'bg-yellow-100 text-yellow-800'
-                    }`}>
-                      {actividad.estado_actividad === 'completado' ? 'Completado' :
-                       actividad.estado_actividad === 'reprogramado' ? 'Reprogramado' :
-                       'Pendiente'}
-                    </span>
+                    {(() => {
+                      const enRevision = actividad.en_revision && actividad.estado_actividad !== 'completado';
+                      const base = 'px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ';
+                      if (actividad.estado_actividad === 'completado') {
+                        return <span className={base + 'bg-blue-100 text-blue-800'}>Completado</span>;
+                      }
+                      if (enRevision) {
+                        return <span className={base + 'bg-yellow-100 text-yellow-800'}>En revisión</span>;
+                      }
+                      if (actividad.estado_actividad === 'reprogramado') {
+                        return <span className={base + 'bg-purple-100 text-purple-800'}>Reprogramado</span>;
+                      }
+                      return <span className={base + 'bg-red-100 text-red-700'}>Pendiente</span>;
+                    })()}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
                     <button
@@ -211,7 +254,8 @@ export default function MisActividadesUsuario({ idUsuario }: MisActividadesUsuar
       {/* Información adicional */}
       <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
         <p className="text-sm text-blue-800">
-          📋 <strong>Instrucciones:</strong> Revisa cada actividad asignada y marca como completado cuando termines.
+          📋 <strong>Instrucciones:</strong> Carga tus entregables y cuando termines pulsa “Cumplió”.
+          La actividad solo pasará a <strong>Completado</strong> cuando el administrador la marque como <strong>Conforme</strong>.
         </p>
       </div>
       </div>
@@ -221,9 +265,11 @@ export default function MisActividadesUsuario({ idUsuario }: MisActividadesUsuar
         isOpen={isEntregablesModalOpen}
         onClose={() => setIsEntregablesModalOpen(false)}
         entregableNombre={selectedActividad?.entregable_nombre}
+        entregablesNombres={(selectedActividad as any)?.entregables_lista}
         activityName={selectedActividad?.nombre_actividad}
         activityMaxDate={selectedActividad?.fecha_sustento || null}
         activityCompletionStatus={selectedActividad?.estado_actividad || null}
+        userFulfillmentStatus={(selectedActividad as any)?.cumplimiento || null}
         onChangeStatus={handleMarcarCompletado}
         isAdmin={false}
       />

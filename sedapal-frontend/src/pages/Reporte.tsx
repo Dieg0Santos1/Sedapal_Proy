@@ -1,6 +1,7 @@
 import { FileBarChart, Download } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { actividadesService, sistemasService } from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
+import { actividadesService, sistemasService, adminActividadesService, adminSistemasService, usuarioActividadesService } from '../services/api';
 import type { ActividadConSistema, Sistema } from '../services/api';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -15,6 +16,7 @@ interface ReporteSistema {
 }
 
 export default function Reporte() {
+  const { user } = useAuth();
   const [trimestreSeleccionado, setTrimestreSeleccionado] = useState(1);
   const [actividades, setActividades] = useState<ActividadConSistema[]>([]);
   const [sistemas, setSistemas] = useState<Sistema[]>([]);
@@ -31,7 +33,7 @@ export default function Reporte() {
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [user?.rol, user?.id_usuario]);
 
   useEffect(() => {
     if (actividades.length > 0 && sistemas.length > 0) {
@@ -42,10 +44,26 @@ export default function Reporte() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [actData, sisData] = await Promise.all([
-        actividadesService.getAll(),
-        sistemasService.getAll()
-      ]);
+      let actData: ActividadConSistema[] = [];
+      let sisData: Sistema[] = [];
+
+      if (user?.rol === 'superadmin') {
+        // Actividades creadas por admins; sistemas activos
+        actData = await adminActividadesService.getAllActividadesFromAdmins();
+        sisData = await sistemasService.getAll();
+      } else if (user?.rol === 'admin') {
+        actData = await adminActividadesService.getActividadesByAdmin(user.id_usuario);
+        sisData = await adminSistemasService.getSistemasByAdmin(user.id_usuario);
+      } else if (user?.rol === 'usuario') {
+        actData = await usuarioActividadesService.getActividadesByUsuario(user.id_usuario);
+        // Para nombres de sistema, usamos los activos (no afecta conteo)
+        sisData = await sistemasService.getAll();
+      } else {
+        // fallback
+        actData = await actividadesService.getAll();
+        sisData = await sistemasService.getAll();
+      }
+
       setActividades(actData);
       setSistemas(sisData);
       setError('');

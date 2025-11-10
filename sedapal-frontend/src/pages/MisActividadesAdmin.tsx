@@ -12,13 +12,16 @@ import {
   usuarioActividadesService, 
   cambiosFechaService,
   entregablesService,
-  notificacionesService
-} from '../services/api';
-import type { ActividadConSistema, Sistema, Equipo, Gerencia, Entregable, TipoEntregable } from '../services/api';
+  notificacionesService,
+  categoriasService,
+  usuariosEquiposService
+  } from '../services/api';
+import type { ActividadConSistema, Sistema, Equipo, Gerencia, Entregable, TipoEntregable, Usuario } from '../services/api';
 import Modal from '../components/Modal';
 import ViewEntregablesModal from '../components/ViewEntregablesModal';
 import confetti from 'canvas-confetti';
 import { validarFechaEnTrimestre, getMensajeErrorFechaTrimestre, getNombreMesesTrimestre } from '../utils/trimestreUtils';
+import { ACTIVIDADES_CATALOGO } from '../data/actividadesCatalog';
 import { calcularFechaMaxima, formatearFechaISO } from '../utils/fechaUtils';
 
 interface MisActividadesAdminProps {
@@ -31,14 +34,20 @@ export default function MisActividadesAdmin({ idAdmin }: MisActividadesAdminProp
   const [equipos, setEquipos] = useState<Equipo[]>([]);
   const [gerencias, setGerencias] = useState<Gerencia[]>([]);
   const [tiposEntregables, setTiposEntregables] = useState<TipoEntregable[]>([]);
+  const [categorias, setCategorias] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   
   // Búsqueda, filtros y paginación
   const [searchTerm, setSearchTerm] = useState('');
   const [filtroSistema, setFiltroSistema] = useState<number>(0);
+  const [filtroGerencia, setFiltroGerencia] = useState<number>(0);
+  const [filtroEquipo, setFiltroEquipo] = useState<number>(0);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
+  
+  // Filtro por estado
+  const [filtroEstado, setFiltroEstado] = useState<string>('');
   
   // Modals
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -50,6 +59,15 @@ export default function MisActividadesAdmin({ idAdmin }: MisActividadesAdminProp
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedEntregables, setSelectedEntregables] = useState<Entregable[]>([]);
   const [selectedActividadForEntregables, setSelectedActividadForEntregables] = useState<ActividadConSistema | null>(null);
+  const [usuariosAsignados, setUsuariosAsignados] = useState<Usuario[]>([]);
+  const [asignarUsuarioError, setAsignarUsuarioError] = useState<string>('');
+  
+  // Nuevo flujo: Crear Usuario y vincularlo a Gerencia/Equipo
+  const [isUsuarioEquipoModalOpen, setIsUsuarioEquipoModalOpen] = useState(false);
+  const [nuevoUsuarioEquipoForm, setNuevoUsuarioEquipoForm] = useState({
+    nombre: '', apellido: '', email: '', id_gerencia: 0, id_equipo: 0,
+  });
+  const [equiposFiltradosUE, setEquiposFiltradosUE] = useState<Equipo[]>([]);
   
   // Estados para edición
   const [editingActividadId, setEditingActividadId] = useState<number | null>(null);
@@ -59,18 +77,27 @@ export default function MisActividadesAdmin({ idAdmin }: MisActividadesAdminProp
   const [modoAsignacionUsuario, setModoAsignacionUsuario] = useState<'nuevo' | 'existente'>('nuevo');
   const [usuarioSeleccionadoId, setUsuarioSeleccionadoId] = useState<number | null>(null);
   
-  // Form states - Nuevo formato con gerencias y equipos múltiples
+  // Form state: múltiples combinaciones gerencia-equipo-entregable
   const [formData, setFormData] = useState({
     nombre_actividad: '',
     id_sistema: 0,
-    id_entregable: 0,
-    gerencias_equipos: [] as Array<{ id_gerencia: number; id_equipo: number; gerencia_nombre: string; equipo_nombre: string; gerencia_abrev: string }>,
+    combinaciones: [] as Array<{ 
+      id_gerencia: number; 
+      id_equipo: number; 
+      id_entregable: number; 
+      gerencia_nombre: string; 
+      equipo_nombre: string; 
+      gerencia_abrev: string; 
+      entregable_nombre: string; 
+    }>,
     trimestres: [] as number[]
   });
   
-  // Estados temporales para seleccionar gerencia y equipo
+  // Estados temporales para seleccionar gerencia/equipo/entregable
   const [selectedGerenciaId, setSelectedGerenciaId] = useState<number>(0);
   const [selectedEquipoId, setSelectedEquipoId] = useState<number>(0);
+  const [selectedEntregableId, setSelectedEntregableId] = useState<number>(0);
+  const [selectedCategoriaId, setSelectedCategoriaId] = useState<number>(0);
   const [equiposFiltrados, setEquiposFiltrados] = useState<Equipo[]>([]);
 
   const [editFechaData, setEditFechaData] = useState({
@@ -90,24 +117,68 @@ export default function MisActividadesAdmin({ idAdmin }: MisActividadesAdminProp
     loadUsuariosExistentes();
   }, [idAdmin]);
 
+  const groupActividades = (items: any[]) => {
+    const map = new Map<string, any>();
+    const statusPriority = (s: string | null) => s === 'completado' ? 3 : s === 'reprogramado' ? 2 : s === 'pendiente' ? 1 : 0;
+    items.forEach((a: any) => {
+      const key = `${a.nombre_actividad || ''}|${a.id_sistema || ''}|${a.id_gerencia || ''}|${a.id_equipo || ''}`;
+      const existing = map.get(key);
+      if (!existing) {
+        map.set(key, {
+          ...a,
+          actividad_ids: [a.id_actividad],
+          entregables_lista: a.entregable_nombre ? [a.entregable_nombre] : [],
+          entregables_ids: a.id_entregable ? [a.id_entregable] : [],
+          usuarios_asignados: (a as any).usuarios_asignados || 0,
+          trimestres: Array.isArray((a as any).trimestres) ? [...(a as any).trimestres] : (a.trimestre ? [a.trimestre] : []),
+        });
+      } else {
+        existing.actividad_ids.push(a.id_actividad);
+        if (a.entregable_nombre && !existing.entregables_lista.includes(a.entregable_nombre)) {
+          existing.entregables_lista.push(a.entregable_nombre);
+        }
+        if (a.id_entregable && !existing.entregables_ids.includes(a.id_entregable)) {
+          existing.entregables_ids.push(a.id_entregable);
+        }
+        existing.usuarios_asignados = (existing.usuarios_asignados || 0) + ((a as any).usuarios_asignados || 0);
+        // Estado: si todos completado -> completado; si alguno reprogramado -> reprogramado; else pendiente
+        const states = [existing.estado_actividad, a.estado_actividad];
+        if (states.every((s: any) => s === 'completado')) existing.estado_actividad = 'completado';
+        else if (states.some((s: any) => s === 'reprogramado')) existing.estado_actividad = 'reprogramado';
+        else existing.estado_actividad = 'pendiente';
+        existing.en_revision = existing.en_revision || a.en_revision;
+        // fecha_sustento: elegir la máxima
+        if (a.fecha_sustento && (!existing.fecha_sustento || a.fecha_sustento > existing.fecha_sustento)) {
+          existing.fecha_sustento = a.fecha_sustento;
+        }
+        // trimestres: unión
+        const newTrims = Array.isArray((a as any).trimestres) ? (a as any).trimestres : (a.trimestre ? [a.trimestre] : []);
+        existing.trimestres = Array.from(new Set([...(existing.trimestres || []), ...newTrims])).sort();
+      }
+    });
+    return Array.from(map.values());
+  };
+
   const loadData = async () => {
     try {
       setLoading(true);
-      const [actData, sisData, eqData, gerData, tiposEntData] = await Promise.all([
+      const [actData, sisData, eqData, gerData, tiposEntData, cats] = await Promise.all([
         adminActividadesService.getActividadesByAdmin(idAdmin),
         adminSistemasService.getSistemasByAdmin(idAdmin),
         equiposService.getAll(),
         gerenciasService.getAll(),
-        tiposEntregablesService.getAll()
+        tiposEntregablesService.getAll(),
+        categoriasService.getAll()
       ]);
       console.log('Gerencias cargadas:', gerData);
       console.log('Equipos cargados:', eqData);
       console.log('Tipos de entregables cargados:', tiposEntData);
-      setActividades(actData);
+      setActividades(groupActividades(actData));
       setSistemasDelegados(sisData);
       setEquipos(eqData);
       setGerencias(gerData);
       setTiposEntregables(tiposEntData);
+      setCategorias(cats);
       setError('');
     } catch (err: any) {
       console.error('Error completo al cargar datos:', err);
@@ -119,10 +190,70 @@ export default function MisActividadesAdmin({ idAdmin }: MisActividadesAdminProp
 
   const loadUsuariosExistentes = async () => {
     try {
-      const usuarios = await usuariosService.getUsuarios();
+      const usuarios = await usuariosEquiposService.getUsuariosConEquipo();
       setUsuariosExistentes(usuarios);
     } catch (err: any) {
       console.error('Error al cargar usuarios:', err);
+    }
+  };
+
+  // Agregar entregable al grupo (desde el modal)
+  const handleAddEntregableToGroup = async (idEnt: number) => {
+    try {
+      if (!selectedActividadForEntregables) return;
+      const base: any = { ...(selectedActividadForEntregables as any) };
+      // Crear nueva actividad clonando metadatos del grupo
+      // Asegurar id_sistema válido (puede faltar en objetos agrupados)
+      const idSistemaFinal = base.id_sistema || (sistemasDelegados.find(s => s.abrev === base.sistema_abrev)?.id) || 0;
+      if (!idSistemaFinal) throw new Error('No se pudo determinar el sistema para la relación');
+      const nueva = await actividadesService.create({
+        nombre_actividad: base.nombre_actividad,
+        id_sistema: idSistemaFinal,
+        trimestre: base.trimestre || (Array.isArray(base.trimestres) ? base.trimestres[0] : 1),
+        trimestres: Array.isArray(base.trimestres) ? base.trimestres : [base.trimestre || 1],
+        estado_actividad: 'pendiente',
+        fecha_sustento: base.fecha_sustento || null,
+        evaluacion: 'pendiente',
+        cod_cat_int: base.cod_cat_int || 1,
+        id_gerencia: base.id_gerencia,
+        id_equipo: base.id_equipo,
+        id_entregable: idEnt
+      });
+      // Registrar admin creador
+      await adminActividadesService.registerActividad(idAdmin, nueva.id_actividad);
+      // Asignar a todos los usuarios ya asignados en el grupo
+      let usuariosGrupo: any[] = [];
+      const idsGrupo: number[] = (base.actividad_ids || [base.id_actividad]) as number[];
+      for (const aid of idsGrupo) {
+        const us = await usuarioActividadesService.getUsuariosByActividad(aid);
+        usuariosGrupo = usuariosGrupo.concat(us || []);
+      }
+      const uniqueUsuarios = Array.from(new Set(usuariosGrupo.map((u: any) => u.id_usuario)));
+      for (const uid of uniqueUsuarios) {
+        try { await usuarioActividadesService.assign(uid, nueva.id_actividad); } catch {}
+      }
+      // Actualizar estado local del modal
+      const nuevoNombre = (tiposEntregables.find(t => t.id_entregable === idEnt)?.nombre_entregables || `Entregable #${idEnt}`).trim();
+      base.entregables_lista = Array.from(new Set([...(base.entregables_lista || []), nuevoNombre]));
+      base.entregables_ids = Array.from(new Set([...(base.entregables_ids || []), idEnt]));
+      base.actividad_ids = Array.from(new Set([...(base.actividad_ids || []), nueva.id_actividad]));
+      setSelectedActividadForEntregables(base);
+      // Actualizar listado detallado del modal inmediatamente
+      setDetalleEntregables(prev => Array.from(new Set([...(prev || []), { id: idEnt, nombre: nuevoNombre, actividadId: nueva.id_actividad }]) as any));
+      await loadData();
+    } catch (e: any) {
+      console.error('Error al agregar entregable', e);
+      alert('No se pudo agregar el entregable: ' + (e?.message || 'Error desconocido'));
+    }
+  };
+
+  const loadUsuariosAsignados = async (actividadId: number) => {
+    try {
+      const asignados = await usuarioActividadesService.getUsuariosByActividad(actividadId);
+      setUsuariosAsignados(asignados);
+    } catch (err) {
+      console.error('Error al cargar usuarios asignados:', err);
+      setUsuariosAsignados([]);
     }
   };
 
@@ -139,16 +270,17 @@ export default function MisActividadesAdmin({ idAdmin }: MisActividadesAdminProp
     }
     
     setFormData({
-      nombre_actividad: '',
+      nombre_actividad: ACTIVIDADES_CATALOGO[0] || '',
       id_sistema: sistemasDelegados[0]?.id || 0,
-      id_entregable: 0, // Dejar en 0 para que el usuario seleccione
-      gerencias_equipos: [],
+      combinaciones: [],
       trimestres: []
     });
-    // No pre-seleccionar gerencia, dejar en 0 para que el usuario elija
+    // No pre-seleccionar gerencia/equipo/entregable, dejar en 0 para que el usuario elija
     setSelectedGerenciaId(0);
     setSelectedEquipoId(0);
+    setSelectedEntregableId(0);
     setEquiposFiltrados([]);
+    setSelectedCategoriaId((categorias[0]?.id_categoria) || 0);
     setIsModalOpen(true);
   };
 
@@ -164,49 +296,54 @@ export default function MisActividadesAdmin({ idAdmin }: MisActividadesAdminProp
     }
   }, [selectedGerenciaId, equipos]);
 
-  // Agregar gerencia-equipo a la lista
+  // Agregar combinación gerencia-equipo-entregable
   const handleAgregarGerenciaEquipo = () => {
-    if (selectedGerenciaId === 0 || selectedEquipoId === 0) {
-      setError('Debes seleccionar una gerencia y un equipo');
+    if (selectedGerenciaId === 0 || selectedEquipoId === 0 || selectedEntregableId === 0) {
+      setError('Debes seleccionar gerencia, equipo y tipo de entregable');
       return;
     }
 
-    // Verificar que no se repita la combinación
-    const existe = formData.gerencias_equipos.some(
-      ge => ge.id_gerencia === selectedGerenciaId && ge.id_equipo === selectedEquipoId
+    // Verificar que no se repita la combinación exacta
+    const existe = formData.combinaciones.some(
+      c => c.id_gerencia === selectedGerenciaId && c.id_equipo === selectedEquipoId && c.id_entregable === selectedEntregableId
     );
 
     if (existe) {
-      setError('Esta combinación de gerencia y equipo ya está agregada');
+      setError('Esta combinación ya está agregada');
       return;
     }
 
     const gerencia = gerencias.find(g => g.id_gerencia === selectedGerenciaId);
     const equipo = equiposFiltrados.find(e => e.id_equipo === selectedEquipoId);
+    const entregable = tiposEntregables.find(t => t.id_entregable === selectedEntregableId);
 
-    if (!gerencia || !equipo) return;
+    if (!gerencia || !equipo || !entregable) return;
 
     setFormData({
       ...formData,
-      gerencias_equipos: [
-        ...formData.gerencias_equipos,
+      combinaciones: [
+        ...formData.combinaciones,
         {
           id_gerencia: selectedGerenciaId,
           id_equipo: selectedEquipoId,
+          id_entregable: selectedEntregableId,
+          id_categoria: selectedCategoriaId,
           gerencia_nombre: gerencia.des_gerencia,
           equipo_nombre: equipo.desc_equipo,
-          gerencia_abrev: gerencia.abrev || 'N/A'
+          gerencia_abrev: gerencia.abrev || 'N/A',
+          entregable_nombre: (entregable.nombre_entregables || '').trim() || `Entregable #${entregable.id_entregable}`,
+          categoria_nombre: (categorias.find(c => c.id_categoria === selectedCategoriaId)?.nombre) || 'General'
         }
       ]
     });
     setError('');
   };
 
-  // Eliminar gerencia-equipo de la lista
+  // Eliminar combinación de la lista
   const handleEliminarGerenciaEquipo = (index: number) => {
     setFormData({
       ...formData,
-      gerencias_equipos: formData.gerencias_equipos.filter((_, i) => i !== index)
+      combinaciones: formData.combinaciones.filter((_, i) => i !== index)
     });
   };
 
@@ -237,8 +374,8 @@ export default function MisActividadesAdmin({ idAdmin }: MisActividadesAdminProp
     
     try {
       // Validaciones
-      if (formData.gerencias_equipos.length === 0) {
-        setError('Debes agregar al menos una gerencia con su equipo');
+      if (formData.combinaciones.length === 0) {
+        setError('Debes agregar al menos una combinación de gerencia, equipo y entregable');
         setIsSubmitting(false);
         return;
       }
@@ -260,19 +397,17 @@ export default function MisActividadesAdmin({ idAdmin }: MisActividadesAdminProp
       const fechaMaxima = calcularFechaMaxima([ultimoTrimestre], 0);
       const fechaMaximaStr = formatearFechaISO(fechaMaxima);
 
-      // Para cada combinación de gerencia-equipo, crear una actividad
-      // NOTA: Podrías crear una sola actividad y múltiples relaciones en tb_as_sis_act
-      // pero para simplificar, creamos actividades separadas
-      for (const ge of formData.gerencias_equipos) {
-        // Crear la actividad con el último trimestre para referencia y todos los trimestres seleccionados
+      // Para cada combinación, crear una actividad
+      for (const c of formData.combinaciones) {
         const nuevaActividad = await actividadesService.create({
           nombre_actividad: formData.nombre_actividad,
           id_sistema: formData.id_sistema,
-          id_equipo: ge.id_equipo,
-          id_gerencia: ge.id_gerencia,
-          id_entregable: formData.id_entregable,
-          trimestre: ultimoTrimestre, // Usamos el último trimestre como referencia
-          trimestres: formData.trimestres, // Guardar todos los trimestres seleccionados
+          id_equipo: c.id_equipo,
+          id_gerencia: c.id_gerencia,
+          id_entregable: c.id_entregable,
+          cod_cat_int: c.id_categoria || 1,
+          trimestre: ultimoTrimestre,
+          trimestres: formData.trimestres,
           estado_actividad: 'pendiente',
           fecha_sustento: fechaMaximaStr,
           evaluacion: 'pendiente'
@@ -280,6 +415,29 @@ export default function MisActividadesAdmin({ idAdmin }: MisActividadesAdminProp
 
         // Registrar que el admin creó esta actividad
         await adminActividadesService.registerActividad(idAdmin, nuevaActividad.id_actividad);
+
+        // Notificar y ASIGNAR automáticamente a todos los usuarios del equipo
+        try {
+          const usuariosEquipo = await usuariosEquiposService.getUsuariosByEquipo(c.id_equipo);
+          const sis = sistemasDelegados.find(s => s.id === formData.id_sistema);
+          const equipoNombre = (equipos.find(e => e.id_equipo === c.id_equipo)?.desc_equipo) || 'N/A';
+          for (const u of (usuariosEquipo || [])) {
+            // Enviar correo de actividad asignada
+            await notificacionesService.enviarNotificacionActividad(
+              u.email,
+              `${u.nombre} ${u.apellido}`,
+              formData.nombre_actividad,
+              sis?.abrev || 'N/A',
+              equipoNombre,
+              ultimoTrimestre,
+              fechaMaximaStr
+            );
+            // Asignar al usuario para que figure como asignado (pinta verde)
+            try { await usuarioActividadesService.assign(u.id_usuario, nuevaActividad.id_actividad); } catch {}
+          }
+        } catch (e) {
+          console.warn('No se pudo notificar/asignar usuarios del equipo:', e);
+        }
       }
 
       await loadData();
@@ -397,15 +555,47 @@ export default function MisActividadesAdmin({ idAdmin }: MisActividadesAdminProp
     setUsuarioFormData({ nombre: '', apellido: '', email: '' });
     setModoAsignacionUsuario('nuevo');
     setUsuarioSeleccionadoId(null);
+    setAsignarUsuarioError('');
     setIsAsignarUsuarioModalOpen(true);
+    loadUsuariosAsignados(actividadId);
   };
 
-  const handleOpenViewEntregables = async (actividad: ActividadConSistema) => {
+  const [detalleEntregables, setDetalleEntregables] = useState<Array<{ id: number; nombre: string; actividadId: number }>>([]);
+
+  const handleOpenViewEntregables = async (actividad: ActividadConSistema | any) => {
     try {
       setSelectedActividadForEntregables(actividad);
       setIsViewEntregablesModalOpen(true);
+      // Construir mapeo entregable -> actividadId
+      const idsGrupo: number[] = (actividad.actividad_ids || [actividad.id_actividad]) as number[];
+      const acts = await actividadesService.getByIds(idsGrupo);
+      const detalle = acts.map((a: any) => {
+        const nombre = (tiposEntregables.find(t => t.id_entregable === a.id_entregable)?.nombre_entregables || `Entregable #${a.id_entregable}`).trim();
+        return { id: a.id_entregable, nombre, actividadId: a.id_actividad };
+      }).filter((d: any) => d.id);
+      setDetalleEntregables(detalle);
     } catch (err: any) {
       setError('Error al cargar entregables: ' + err.message);
+    }
+  };
+
+  const handleRemoveEntregableFromGroup = async (idEnt: number) => {
+    try {
+      const item = detalleEntregables.find(d => d.id === idEnt);
+      if (!item) throw new Error('No se encontró el entregable');
+      await actividadesService.deleteWithRelations(item.actividadId);
+      // Actualizar estado local
+      setDetalleEntregables(detalleEntregables.filter(d => d.id !== idEnt));
+      if (selectedActividadForEntregables) {
+        const base: any = { ...(selectedActividadForEntregables as any) };
+        base.entregables_lista = (base.entregables_lista || []).filter((n: string, idx: number) => detalleEntregables[idx]?.id !== idEnt);
+        base.entregables_ids = (base.entregables_ids || []).filter((eid: number) => eid !== idEnt);
+        base.actividad_ids = (base.actividad_ids || []).filter((aid: number) => aid !== item.actividadId);
+        setSelectedActividadForEntregables(base);
+      }
+      await loadData();
+    } catch (e: any) {
+      alert('No se pudo quitar el entregable: ' + (e?.message || ''));
     }
   };
 
@@ -413,10 +603,40 @@ export default function MisActividadesAdmin({ idAdmin }: MisActividadesAdminProp
     if (!selectedActividadForEntregables) return;
 
     try {
-      await actividadesService.update(selectedActividadForEntregables.id_actividad, {
-        evaluacion: 'conforme',
-        estado_actividad: 'completado'
-      });
+      const ids: number[] = (selectedActividadForEntregables as any).actividad_ids || [selectedActividadForEntregables.id_actividad];
+      // Marcar todas como completado
+      for (const id of ids) {
+        await actividadesService.update(id, { evaluacion: 'conforme', estado_actividad: 'completado' });
+      }
+
+      // Notificar a usuarios y superadmins (una sola vez, agregando todos los usuarios)
+      try {
+        let usuariosAsignadosAll: any[] = [];
+        for (const id of ids) {
+          const u = await usuarioActividadesService.getUsuariosByActividad(id);
+          usuariosAsignadosAll = usuariosAsignadosAll.concat(u || []);
+        }
+        const uniqueUsuarios = Array.from(new Set(usuariosAsignadosAll.map((u: any) => u.email)));
+        let superadmins: any[] = [];
+        try {
+          if ((usuariosService as any).getSuperadmins) {
+            superadmins = await (usuariosService as any).getSuperadmins();
+          }
+        } catch (e) {
+          console.warn('No se pudo obtener superadmins:', e);
+        }
+        await notificacionesService.enviarConforme({
+          usuariosDestino: uniqueUsuarios,
+          superadminsDestino: (superadmins || []).map(sa => sa.email),
+          nombreActividad: selectedActividadForEntregables.nombre_actividad || 'Actividad',
+          entregableNombre: ((selectedActividadForEntregables as any).entregables_lista || [selectedActividadForEntregables.entregable_nombre]).join(', '),
+          sistemaAbrev: selectedActividadForEntregables.sistema_abrev || 'N/A',
+          equipoNombre: selectedActividadForEntregables.equipo_nombre || 'N/A',
+          fechaMaxima: selectedActividadForEntregables.fecha_sustento || null
+        });
+      } catch (e) {
+        console.warn('No se pudo notificar conforme:', e);
+      }
 
       await loadData();
       setIsViewEntregablesModalOpen(false);
@@ -430,31 +650,54 @@ export default function MisActividadesAdmin({ idAdmin }: MisActividadesAdminProp
     if (!assigningActividadId) return;
 
     setIsSubmitting(true);
-    setError('');
+    setAsignarUsuarioError('');
 
     try {
       if (modoAsignacionUsuario === 'nuevo') {
-        // Crear nuevo usuario
-        const inicialNombre = usuarioFormData.nombre.charAt(0).toUpperCase();
-        const inicialApellido = usuarioFormData.apellido.charAt(0).toUpperCase();
-        const dosDigitos = Math.floor(Math.random() * 90 + 10);
-        const contrasenaGenerada = `User${inicialNombre}${inicialApellido}${dosDigitos}`;
+        // Validación: correo único
+        const existente = await usuariosService.getByEmail(usuarioFormData.email);
+        if (existente) {
+          setAsignarUsuarioError('El correo ya fue registrado previamente.');
+          setIsSubmitting(false);
+          return;
+        }
 
-        const nuevoUsuario = await usuariosService.createUser({
-          nombre: usuarioFormData.nombre,
-          apellido: usuarioFormData.apellido,
-          email: usuarioFormData.email,
-          contrasena: contrasenaGenerada,
-          idActividad: assigningActividadId
+        // Crear nuevo usuario vía backend con detalle de actividad (envía correo automático)
+        const normalizeName = (s: string) => s.trim().toLowerCase().split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+        const nombreN = normalizeName(usuarioFormData.nombre);
+        const apellidoN = normalizeName(usuarioFormData.apellido);
+
+        const actividadBase = actividades.find(a => a.id_actividad === assigningActividadId) as any;
+        const trimestreMail = actividadBase?.trimestre || (Array.isArray(actividadBase?.trimestres) ? actividadBase.trimestres[0] : 1);
+        const creado = await usuariosService.createUsuarioConActividad({
+          nombre: nombreN,
+          apellido: apellidoN,
+          email: usuarioFormData.email.trim(),
+          nombreActividad: actividadBase?.nombre_actividad || 'Actividad',
+          sistemaAbrev: actividadBase?.sistema_abrev || 'N/A',
+          equipoNombre: actividadBase?.equipo_nombre || 'N/A',
+          trimestre: trimestreMail,
+          fechaMaxima: actividadBase?.fecha_sustento || null
         });
 
-        // Asignar actividad al usuario
-        await usuarioActividadesService.assign(nuevoUsuario.id_usuario, assigningActividadId);
+        const newUserId = (creado as any).id || (creado as any).id_usuario;
 
-        // Guardar credenciales para mostrar
+        // Asignar al grupo completo (todas las actividades hermanas)
+        const grupo = actividades.find(a => a.id_actividad === assigningActividadId) as any;
+        const idsGrupo: number[] = (grupo?.actividad_ids || [assigningActividadId]) as number[];
+        for (const aid of idsGrupo) {
+          try { await usuarioActividadesService.assign(newUserId, aid); } catch {}
+        }
+
+        // Vincular usuario a equipo/gerencia de la actividad para visibilidad futura
+        if (actividadBase?.id_equipo && actividadBase?.id_gerencia) {
+          try { await usuariosEquiposService.assign(newUserId, actividadBase.id_gerencia, actividadBase.id_equipo); } catch {}
+        }
+
+        // Guardar credenciales para mostrar (backend devuelve contraseña)
         setCreatedUserData({
           email: usuarioFormData.email,
-          password: contrasenaGenerada
+          password: (creado as any)?.contrasena || ''
         });
 
         setIsSuccessModalOpen(true);
@@ -462,7 +705,7 @@ export default function MisActividadesAdmin({ idAdmin }: MisActividadesAdminProp
         // Recargar lista de usuarios
         await loadUsuariosExistentes();
         
-        // NOTA: El email con credenciales se envía automáticamente desde el backend
+        // Correo ya enviado por el backend automáticamente
       } else {
         // Asignar usuario existente a la actividad
         if (!usuarioSeleccionadoId) {
@@ -471,7 +714,13 @@ export default function MisActividadesAdmin({ idAdmin }: MisActividadesAdminProp
           return;
         }
 
-        await usuarioActividadesService.assign(usuarioSeleccionadoId, assigningActividadId);
+        // Asignar usuario existente a todas las actividades del grupo
+        const grupo = actividades.find(a => a.id_actividad === assigningActividadId) as any;
+        const idsGrupo: number[] = (grupo?.actividad_ids || [assigningActividadId]) as number[];
+        for (const aid of idsGrupo) {
+          try { await usuarioActividadesService.assign(usuarioSeleccionadoId, aid); } catch {}
+        }
+        await loadUsuariosAsignados(assigningActividadId);
         
         // Obtener datos del usuario y la actividad para enviar notificación
         const usuario = usuariosExistentes.find(u => u.id_usuario === usuarioSeleccionadoId);
@@ -496,6 +745,9 @@ export default function MisActividadesAdmin({ idAdmin }: MisActividadesAdminProp
       setUsuarioFormData({ nombre: '', apellido: '', email: '' });
       setUsuarioSeleccionadoId(null);
       
+      // refrescar lista para reflejar cambios (indicadores / agrupación)
+      await loadData();
+      
       confetti({
         particleCount: 100,
         spread: 70,
@@ -503,7 +755,12 @@ export default function MisActividadesAdmin({ idAdmin }: MisActividadesAdminProp
         colors: ['#10B981', '#34D399', '#6EE7B7']
       });
     } catch (err: any) {
-      setError('Error al asignar usuario: ' + err.message);
+      const msg: string = (err?.message || '').toLowerCase();
+      if (err?.code === '23505' || msg.includes('duplicate key') || msg.includes('ya existe') || msg.includes('duplicate')) {
+        setAsignarUsuarioError('El usuario ya está asignado a esta actividad.');
+      } else {
+        setAsignarUsuarioError('Error al asignar usuario: ' + (err?.message || ''));
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -511,14 +768,21 @@ export default function MisActividadesAdmin({ idAdmin }: MisActividadesAdminProp
 
   // Filtrar actividades
   const actividadesFiltradas = actividades.filter(act => {
+    const term = searchTerm.toLowerCase();
     const matchesSearch = 
-      (act.nombre_actividad?.toLowerCase().includes(searchTerm.toLowerCase()) || false) ||
-      (act.sistema_abrev?.toLowerCase().includes(searchTerm.toLowerCase()) || false) ||
-      (act.equipo_nombre?.toLowerCase().includes(searchTerm.toLowerCase()) || false);
+      (act.nombre_actividad?.toLowerCase().includes(term) || false) ||
+      (act.sistema_abrev?.toLowerCase().includes(term) || false) ||
+      (act.equipo_nombre?.toLowerCase().includes(term) || false) ||
+      (act.gerencia_nombre?.toLowerCase().includes(term) || false) ||
+      (act.gerencia_abrev?.toLowerCase().includes(term) || false);
     
     const matchesSistema = filtroSistema === 0 || act.id_sistema === filtroSistema;
+    const matchesGerencia = filtroGerencia === 0 || act.id_gerencia === filtroGerencia;
+    const matchesEquipo = filtroEquipo === 0 || act.id_equipo === filtroEquipo;
+    const matchesEstado = filtroEstado === '' ||
+      (filtroEstado === 'revision' ? ((act as any).en_revision && act.estado_actividad !== 'completado') : act.estado_actividad === filtroEstado);
     
-    return matchesSearch && matchesSistema;
+    return matchesSearch && matchesSistema && matchesGerencia && matchesEquipo && matchesEstado;
   });
 
   // Paginación
@@ -529,7 +793,7 @@ export default function MisActividadesAdmin({ idAdmin }: MisActividadesAdminProp
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm]);
+  }, [searchTerm, filtroSistema, filtroGerencia, filtroEquipo, filtroEstado]);
 
   if (loading) {
     return (
@@ -547,14 +811,30 @@ export default function MisActividadesAdmin({ idAdmin }: MisActividadesAdminProp
           <ClipboardList className="text-sedapal-lightBlue mr-3" size={32} />
           <h1 className="text-3xl font-bold text-sedapal-lightBlue">Mis Actividades</h1>
         </div>
-        <button
-          onClick={handleOpenModal}
-          className="flex items-center px-4 py-2 bg-sedapal-lightBlue text-white rounded-lg hover:bg-sedapal-blue transition"
-          disabled={sistemasDelegados.length === 0}
-        >
-          <Plus size={20} className="mr-2" />
-          Añadir Actividad
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              // abrir modal NUEVO para crear usuario y vincular a equipo
+              setNuevoUsuarioEquipoForm({ nombre: '', apellido: '', email: '', id_gerencia: 0, id_equipo: 0 });
+              setEquiposFiltradosUE([]);
+              setIsUsuarioEquipoModalOpen(true);
+            }}
+            className="flex items-center px-4 py-2 border-2 border-sedapal-lightBlue text-sedapal-blue rounded-lg hover:bg-sedapal-lightBlue hover:text-white transition"
+            disabled={actividades.length === 0}
+            title="Usuario/Equipo"
+          >
+            <UserPlus size={18} className="mr-2" />
+            Usuario/Equipo
+          </button>
+          <button
+            onClick={handleOpenModal}
+            className="flex items-center px-4 py-2 bg-sedapal-lightBlue text-white rounded-lg hover:bg-sedapal-blue transition"
+            disabled={sistemasDelegados.length === 0}
+          >
+            <Plus size={20} className="mr-2" />
+            Añadir Actividad
+          </button>
+        </div>
       </div>
 
       {/* Error message */}
@@ -582,13 +862,13 @@ export default function MisActividadesAdmin({ idAdmin }: MisActividadesAdminProp
       )}
 
       {/* Barra de búsqueda y filtros */}
-      <div className="mb-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="mb-6 grid grid-cols-1 md:grid-cols-6 gap-4 items-center">
         {/* Búsqueda */}
         <div className="md:col-span-2 relative">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
           <input
             type="text"
-            placeholder="Buscar por nombre, sistema o equipo..."
+            placeholder="Buscar por nombre, sistema, gerencia o equipo..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sedapal-lightBlue focus:border-transparent"
@@ -609,6 +889,74 @@ export default function MisActividadesAdmin({ idAdmin }: MisActividadesAdminProp
               </option>
             ))}
           </select>
+        </div>
+
+        {/* Filtro por gerencia */}
+        <div>
+          <select
+            value={filtroGerencia}
+            onChange={(e) => {
+              const val = parseInt(e.target.value);
+              setFiltroGerencia(val);
+              setFiltroEquipo(0); // reset equipo cuando cambia gerencia
+            }}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sedapal-lightBlue focus:border-transparent"
+          >
+            <option value={0}>Todas las gerencias</option>
+            {gerencias.map(g => (
+              <option key={g.id_gerencia} value={g.id_gerencia}>
+                {g.des_gerencia}{g.abrev ? ` - ${g.abrev}` : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Filtro por equipo (dependiente de gerencia) */}
+        <div>
+          <select
+            value={filtroEquipo}
+            onChange={(e) => setFiltroEquipo(parseInt(e.target.value))}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sedapal-lightBlue focus:border-transparent"
+          >
+            <option value={0}>Todos los equipos</option>
+            {(filtroGerencia ? equipos.filter(eq => eq.id_gerencia === filtroGerencia) : equipos).map(eq => (
+              <option key={eq.id_equipo || eq.id} value={eq.id_equipo || (eq.id as number)}>
+                {eq.desc_equipo} - {gerencias.find(g => g.id_gerencia === (eq.id_gerencia as number))?.abrev || ''}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Filtro por estado */}
+        <div>
+          <select
+            value={filtroEstado}
+            onChange={(e) => setFiltroEstado(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sedapal-lightBlue focus:border-transparent"
+          >
+            <option value="">Todos los estados</option>
+            <option value="pendiente">Pendiente</option>
+            <option value="revision">En revisión</option>
+            <option value="reprogramado">Reprogramado</option>
+            <option value="completado">Completado</option>
+          </select>
+        </div>
+
+        {/* Limpiar filtros */}
+        <div>
+          <button
+            onClick={() => {
+              setSearchTerm('');
+              setFiltroSistema(0);
+              setFiltroGerencia(0);
+              setFiltroEquipo(0);
+              setCurrentPage(1);
+              setFiltroEstado('');
+            }}
+            className="w-full px-3 py-2 text-sm border-2 border-sedapal-cyan text-sedapal-blue rounded-lg hover:bg-sedapal-cyan hover:text-white transition flex items-center justify-center gap-2"
+          >
+            <X size={16} /> Limpiar filtros
+          </button>
         </div>
       </div>
 
@@ -632,12 +980,12 @@ export default function MisActividadesAdmin({ idAdmin }: MisActividadesAdminProp
             {actividadesPaginadas.length === 0 ? (
               <tr>
                 <td colSpan={9} className="px-6 py-8 text-center text-gray-500">
-                  {searchTerm || filtroSistema !== 0 ? 'No se encontraron resultados' : 'No has creado actividades aún'}
+                  {searchTerm || filtroSistema !== 0 || filtroGerencia !== 0 || filtroEquipo !== 0 ? 'No se encontraron resultados' : 'No has creado actividades aún'}
                 </td>
               </tr>
             ) : (
               actividadesPaginadas.map((actividad, index) => (
-                <tr key={actividad.id_actividad} className="hover:bg-gray-50">
+                <tr key={actividad.id_actividad} className="hover:bg-gray-50" style={{ borderRightWidth: 4, borderRightStyle: 'solid', borderRightColor: (actividad as any).usuarios_asignados > 0 ? '#10B981' : '#EF4444' }}>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{startIndex + index + 1}</td>
                   <td className="px-6 py-4 text-sm text-gray-900">{actividad.nombre_actividad || 'N/A'}</td>
                   <td className="px-6 py-4 whitespace-nowrap">
@@ -667,15 +1015,20 @@ export default function MisActividadesAdmin({ idAdmin }: MisActividadesAdminProp
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                      actividad.estado_actividad === 'completado' ? 'bg-blue-100 text-blue-800' :
-                      actividad.estado_actividad === 'reprogramado' ? 'bg-purple-100 text-purple-800' :
-                      'bg-yellow-100 text-yellow-800'
-                    }`}>
-                      {actividad.estado_actividad === 'completado' ? 'Completado' :
-                       actividad.estado_actividad === 'reprogramado' ? 'Reprogramado' :
-                       'Pendiente'}
-                    </span>
+                    {(() => {
+                      const enRevision = (actividad as any).en_revision && actividad.estado_actividad !== 'completado';
+                      const base = 'px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ';
+                      if (actividad.estado_actividad === 'completado') {
+                        return <span className={base + 'bg-blue-100 text-blue-800'}>Completado</span>;
+                      }
+                      if (enRevision) {
+                        return <span className={base + 'bg-yellow-100 text-yellow-800'}>En revisión</span>;
+                      }
+                      if (actividad.estado_actividad === 'reprogramado') {
+                        return <span className={base + 'bg-purple-100 text-purple-800'}>Reprogramado</span>;
+                      }
+                      return <span className={base + 'bg-red-100 text-red-700'}>Pendiente</span>;
+                    })()}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
                     <button
@@ -751,19 +1104,21 @@ export default function MisActividadesAdmin({ idAdmin }: MisActividadesAdminProp
         title="Añadir Nueva Actividad"
       >
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Nombre de la actividad */}
+          {/* Nombre de la actividad (catálogo) */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Nombre de la Actividad *
+              Actividad *
             </label>
-            <input
-              type="text"
+            <select
               required
               value={formData.nombre_actividad}
               onChange={(e) => setFormData({ ...formData, nombre_actividad: e.target.value })}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sedapal-lightBlue focus:border-transparent"
-              placeholder="Ej: Auditoría interna del sistema"
-            />
+            >
+              {ACTIVIDADES_CATALOGO.map((nombre, idx) => (
+                <option key={idx} value={nombre}>{nombre}</option>
+              ))}
+            </select>
           </div>
 
           {/* Sistema */}
@@ -786,53 +1141,13 @@ export default function MisActividadesAdmin({ idAdmin }: MisActividadesAdminProp
             </select>
           </div>
 
-          {/* Tipo de Entregable */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Tipo de Entregable * ({tiposEntregables.length} disponibles)
-            </label>
-            <select
-              required
-              value={formData.id_entregable}
-              onChange={(e) => {
-                console.log('Entregable seleccionado:', e.target.value);
-                setFormData({ ...formData, id_entregable: parseInt(e.target.value) });
-              }}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sedapal-lightBlue focus:border-transparent"
-              size={1}
-              style={{ maxHeight: '200px' }}
-            >
-              <option value={0}>Selecciona un tipo de entregable</option>
-              {tiposEntregables.length > 0 ? (
-                tiposEntregables.map(tipo => {
-                  const nombreLimpio = tipo.nombre_entregables?.trim();
-                  return (
-                    <option key={tipo.id_entregable} value={tipo.id_entregable}>
-                      {nombreLimpio && nombreLimpio.length > 0 ? nombreLimpio : `Entregable #${tipo.id_entregable}`}
-                    </option>
-                  );
-                })
-              ) : (
-                <option disabled>No hay entregables disponibles</option>
-              )}
-            </select>
-            {tiposEntregables.length === 0 && (
-              <p className="text-xs text-red-500 mt-1">
-                No se pudieron cargar los tipos de entregables
-              </p>
-            )}
-          </div>
+          {/* Selección de Gerencia, Equipo y Entregable */}
 
-          {/* Gerencia y Equipo */}
+          {/* Gerencia, Equipo, Entregable y Categoría */}
           <div className="border border-gray-300 rounded-lg p-4 bg-gray-50">
-            <h3 className="text-sm font-semibold text-gray-700 mb-3">Gerencias y Equipos Responsables</h3>
+            <h3 className="text-sm font-semibold text-gray-700 mb-3">Asignaciones (Gerencia, Equipo, Entregable y Categoría)</h3>
             
-            {/* Debug info */}
-            <div className="text-xs text-gray-500 mb-2">
-              Gerencias cargadas: {gerencias.length}
-            </div>
-            
-            <div className="grid grid-cols-2 gap-3 mb-3">
+            <div className="grid grid-cols-4 gap-3 mb-3">
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">
                   Gerencia ({gerencias.length} disponibles)
@@ -860,6 +1175,22 @@ export default function MisActividadesAdmin({ idAdmin }: MisActividadesAdminProp
 
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">
+                  Categoría ({categorias.length})
+                </label>
+                <select
+                  value={selectedCategoriaId}
+                  onChange={(e) => setSelectedCategoriaId(parseInt(e.target.value))}
+                  className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-sedapal-lightBlue focus:border-transparent"
+                >
+                  <option value={0}>Selecciona una categoría</option>
+                  {categorias.map(cat => (
+                    <option key={cat.id_categoria} value={cat.id_categoria}>{cat.nombre}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">
                   Equipo
                 </label>
                 <select
@@ -876,6 +1207,24 @@ export default function MisActividadesAdmin({ idAdmin }: MisActividadesAdminProp
                   ))}
                 </select>
               </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">
+                  Entregable ({tiposEntregables.length})
+                </label>
+                <select
+                  value={selectedEntregableId}
+                  onChange={(e) => setSelectedEntregableId(parseInt(e.target.value))}
+                  className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-sedapal-lightBlue focus:border-transparent"
+                >
+                  <option value={0}>Selecciona un entregable</option>
+                  {tiposEntregables.map(tipo => (
+                    <option key={tipo.id_entregable} value={tipo.id_entregable}>
+                      {(tipo.nombre_entregables || '').trim() || `Entregable #${tipo.id_entregable}`}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             <button
@@ -883,19 +1232,21 @@ export default function MisActividadesAdmin({ idAdmin }: MisActividadesAdminProp
               onClick={handleAgregarGerenciaEquipo}
               className="w-full px-3 py-2 bg-green-500 text-white text-sm rounded-lg hover:bg-green-600 transition"
             >
-              + Agregar Gerencia y Equipo
+              + Agregar Asignación
             </button>
 
-            {/* Lista de gerencias-equipos agregados */}
-            {formData.gerencias_equipos.length > 0 && (
+            {/* Lista de combinaciones agregadas */}
+            {formData.combinaciones.length > 0 && (
               <div className="mt-3 space-y-2">
                 <p className="text-xs font-medium text-gray-600">Agregados:</p>
-                {formData.gerencias_equipos.map((ge, index) => (
+                {formData.combinaciones.map((c, index) => (
                   <div key={index} className="flex items-center justify-between bg-white p-2 rounded border border-gray-200">
                     <div className="text-xs">
-                      <span className="font-semibold text-sedapal-blue">{ge.gerencia_nombre}</span>
+                      <span className="font-semibold text-sedapal-blue">{c.gerencia_nombre}</span>
                       <span className="text-gray-500"> → </span>
-                      <span className="text-gray-700">{ge.equipo_nombre}</span>
+                      <span className="text-gray-700">{c.equipo_nombre}</span>
+                      <span className="text-gray-500"> • </span>
+                      <span className="text-gray-700">{c.entregable_nombre}</span>
                     </div>
                     <button
                       type="button"
@@ -975,9 +1326,40 @@ export default function MisActividadesAdmin({ idAdmin }: MisActividadesAdminProp
             )}
           </div>
 
+          {/* Fechas máximas por trimestre (informativas) */}
+          {editingActividadId && (() => {
+            const act = actividades.find(a => a.id_actividad === editingActividadId) as any;
+            if (!act) return null;
+            const trims: number[] = Array.isArray(act.trimestres) ? act.trimestres : (act.trimestre ? [act.trimestre] : []);
+            const hoy = new Date();
+            const trimestreActual = Math.floor(hoy.getMonth() / 3) + 1;
+            const format = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+            return (
+              <div className="border-2 border-sedapal-lightBlue rounded-lg">
+                <div className="px-4 py-2 border-b-2 border-sedapal-lightBlue text-sedapal-lightBlue font-semibold">Fechas por Trimestre</div>
+                <div className="divide-y divide-sedapal-lightBlue/40">
+                  {trims.map((t: number) => {
+                    const fecha = calcularFechaMaxima([t], 0);
+                    const estado = t < trimestreActual ? 'Cerrado' : (t === trimestreActual ? 'Activo' : 'Bloqueado');
+                    const color = t < trimestreActual ? 'text-gray-500' : (t === trimestreActual ? 'text-green-600' : 'text-orange-600');
+                    return (
+                      <div key={t} className="px-4 py-2 flex items-center justify-between text-sm">
+                        <div>
+                          <span className="font-medium">Trimestre {t}</span>
+                          <span className="ml-2 text-gray-700">Fecha máxima: {format(fecha)}</span>
+                        </div>
+                        <span className={`text-xs font-semibold ${color}`}>{estado}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Nueva Fecha Máxima *
+              Nueva Fecha Máxima * (aplica al trimestre activo)
             </label>
             <input
               type="date"
@@ -1031,10 +1413,15 @@ export default function MisActividadesAdmin({ idAdmin }: MisActividadesAdminProp
       {/* Modal: Asignar Usuario */}
       <Modal
         isOpen={isAsignarUsuarioModalOpen}
-        onClose={() => setIsAsignarUsuarioModalOpen(false)}
+        onClose={() => { setIsAsignarUsuarioModalOpen(false); setAsignarUsuarioError(''); }}
         title="Asignar Usuario a Actividad"
       >
         <form onSubmit={handleAsignarUsuario} className="space-y-4">
+          {asignarUsuarioError && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded">
+              {asignarUsuarioError}
+            </div>
+          )}
           {/* Información de la actividad */}
           {assigningActividadId && (() => {
             const actividad = actividades.find(a => a.id_actividad === assigningActividadId);
@@ -1042,12 +1429,26 @@ export default function MisActividadesAdmin({ idAdmin }: MisActividadesAdminProp
             
             return (
               <div className="bg-sedapal-cyan bg-opacity-10 border border-sedapal-cyan rounded-lg p-4">
-                <h4 className="text-sm font-semibold text-sedapal-blue mb-2">📋 Información de la Actividad</h4>
-                <div className="space-y-1 text-sm">
-                  <p><span className="font-medium text-gray-700">Actividad:</span> <span className="text-gray-900">{actividad.nombre_actividad || 'N/A'}</span></p>
-                  <p><span className="font-medium text-gray-700">Sistema:</span> <span className="text-gray-900">{actividad.sistema_abrev || 'N/A'}</span></p>
-                  <p><span className="font-medium text-gray-700">Gerencia:</span> <span className="text-gray-900">{actividad.gerencia_nombre || 'N/A'}</span></p>
-                  <p><span className="font-medium text-gray-700">Equipo:</span> <span className="text-gray-900">{actividad.equipo_nombre || 'N/A'}</span></p>
+                <div className="flex items-start justify-between gap-6">
+                  <div className="space-y-1 text-sm">
+                    <h4 className="text-sm font-semibold text-sedapal-blue mb-2">📋 Información de la Actividad</h4>
+                    <p><span className="font-medium text-gray-700">Actividad:</span> <span className="text-gray-900">{actividad.nombre_actividad || 'N/A'}</span></p>
+                    <p><span className="font-medium text-gray-700">Sistema:</span> <span className="text-gray-900">{actividad.sistema_abrev || 'N/A'}</span></p>
+                    <p><span className="font-medium text-gray-700">Gerencia:</span> <span className="text-gray-900">{actividad.gerencia_nombre || 'N/A'}</span></p>
+                    <p><span className="font-medium text-gray-700">Equipo:</span> <span className="text-gray-900">{actividad.equipo_nombre || 'N/A'}</span></p>
+                  </div>
+                  <div className="min-w-[220px]">
+                    <h5 className="text-sm font-semibold text-sedapal-blue mb-2">Usuarios Asignados:</h5>
+                    {usuariosAsignados.length === 0 ? (
+                      <p className="text-sm text-gray-600">Ninguno</p>
+                    ) : (
+                      <ul className="list-disc pl-5 space-y-1 text-sm text-gray-800">
+                        {usuariosAsignados.map(u => (
+                          <li key={u.id_usuario}>{u.nombre} {u.apellido} ({u.email})</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
                 </div>
               </div>
             );
@@ -1099,11 +1500,18 @@ export default function MisActividadesAdmin({ idAdmin }: MisActividadesAdminProp
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sedapal-lightBlue focus:border-transparent"
                 >
                   <option value="">Selecciona un usuario</option>
-                  {usuariosExistentes.map((usuario) => (
-                    <option key={usuario.id_usuario} value={usuario.id_usuario}>
-                      {usuario.nombre} {usuario.apellido} ({usuario.email})
-                    </option>
-                  ))}
+                  {(() => {
+                    const actividad = actividades.find(a => a.id_actividad === assigningActividadId);
+                    const equipoActividad = actividad?.id_equipo || null;
+                    return usuariosExistentes
+                      .filter(u => !usuariosAsignados.some(ua => ua.id_usuario === u.id_usuario))
+                      .filter(u => (u.id_equipo || null) === equipoActividad)
+                      .map((usuario) => (
+                        <option key={usuario.id_usuario} value={usuario.id_usuario}>
+                          {usuario.nombre} {usuario.apellido} ({usuario.email})
+                        </option>
+                      ));
+                  })()}
                 </select>
                 {usuariosExistentes.length === 0 && (
                   <p className="text-xs text-gray-500 mt-1">
@@ -1185,16 +1593,162 @@ export default function MisActividadesAdmin({ idAdmin }: MisActividadesAdminProp
       </Modal>
 
       {/* Modal: Ver Entregables */}
-      <ViewEntregablesModal
-        isOpen={isViewEntregablesModalOpen}
-        onClose={() => setIsViewEntregablesModalOpen(false)}
-        entregableNombre={selectedActividadForEntregables?.entregable_nombre}
-        activityName={selectedActividadForEntregables?.nombre_actividad}
-        activityMaxDate={selectedActividadForEntregables?.fecha_sustento || null}
-        activityCompletionStatus={selectedActividadForEntregables?.estado_actividad || null}
-        onChangeStatus={handleChangeActivityStatus}
-        isAdmin={true}
-      />
+        <ViewEntregablesModal
+          isOpen={isViewEntregablesModalOpen}
+          onClose={() => setIsViewEntregablesModalOpen(false)}
+          entregableNombre={selectedActividadForEntregables?.entregable_nombre}
+          entregablesNombres={(selectedActividadForEntregables as any)?.entregables_lista}
+          entregablesDetalle={detalleEntregables?.map(d => ({ id: d.id, nombre: d.nombre }))}
+          onRemoveEntregable={handleRemoveEntregableFromGroup}
+          activityName={selectedActividadForEntregables?.nombre_actividad}
+          activityMaxDate={selectedActividadForEntregables?.fecha_sustento || null}
+          activityCompletionStatus={selectedActividadForEntregables?.estado_actividad || null}
+          onChangeStatus={handleChangeActivityStatus}
+          isAdmin
+          canApprove={Boolean((selectedActividadForEntregables as any)?.en_revision)}
+          canModifyEntregables={!(selectedActividadForEntregables as any)?.en_revision && (selectedActividadForEntregables?.estado_actividad !== 'completado')}
+          addOptions={(() => {
+            const used = new Set(((selectedActividadForEntregables as any)?.entregables_ids || []) as number[]);
+            return tiposEntregables
+              .filter(t => !used.has(t.id_entregable))
+              .map(t => ({ id: t.id_entregable, nombre: (t.nombre_entregables || '').trim() || `Entregable #${t.id_entregable}` }));
+          })()}
+          onAddEntregable={handleAddEntregableToGroup}
+        />
+
+      {/* Modal: Crear Usuario y vincular a Equipo */}
+      <Modal
+        isOpen={isUsuarioEquipoModalOpen}
+        onClose={() => setIsUsuarioEquipoModalOpen(false)}
+        title="Crear Usuario y Vincular a Equipo"
+      >
+        <form onSubmit={async (e) => {
+          e.preventDefault();
+          setIsSubmitting(true);
+          setAsignarUsuarioError('');
+          try {
+            // Validaciones básicas
+            if (!nuevoUsuarioEquipoForm.nombre.trim() || !nuevoUsuarioEquipoForm.apellido.trim() || !nuevoUsuarioEquipoForm.email.trim()) {
+              setAsignarUsuarioError('Completa nombre, apellido y email');
+              setIsSubmitting(false);
+              return;
+            }
+            if (!nuevoUsuarioEquipoForm.id_gerencia || !nuevoUsuarioEquipoForm.id_equipo) {
+              setAsignarUsuarioError('Selecciona gerencia y equipo');
+              setIsSubmitting(false);
+              return;
+            }
+
+            // Validar email único via backend
+            const existente = await usuariosService.getByEmail(nuevoUsuarioEquipoForm.email.trim());
+            if (existente) {
+              setAsignarUsuarioError('El correo ya fue registrado previamente.');
+              setIsSubmitting(false);
+              return;
+            }
+
+            // Crear usuario con contraseña generada
+            const normalizeName = (s: string) => s.trim().toLowerCase().split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+            const nombreN = normalizeName(nuevoUsuarioEquipoForm.nombre);
+            const apellidoN = normalizeName(nuevoUsuarioEquipoForm.apellido);
+            const inicialNombre = nombreN.charAt(0).toUpperCase();
+            const inicialApellido = apellidoN.charAt(0).toUpperCase();
+            const dosDigitos = Math.floor(Math.random() * 90 + 10);
+            const contrasenaGenerada = `User${inicialNombre}${inicialApellido}${dosDigitos}`;
+
+            // Crear usuario usando backend (genera contraseña y envía correo base)
+            const creado = await usuariosService.createUsuarioBackend({
+              nombre: nombreN,
+              apellido: apellidoN,
+              email: nuevoUsuarioEquipoForm.email.trim(),
+            });
+            const userId = (creado as any).id ?? (creado as any).id_usuario; // backend retorna 'id'
+            const passwordResp = (creado as any).contrasena || contrasenaGenerada; // fallback por si el backend no la retorna
+
+            // Vincular al equipo seleccionado
+            if (!userId) throw new Error('No se pudo obtener el ID del nuevo usuario');
+            await usuariosEquiposService.assign(userId, nuevoUsuarioEquipoForm.id_gerencia, nuevoUsuarioEquipoForm.id_equipo);
+
+            // Notificar credenciales + pertenencia (siguiendo estructura de notificaciones)
+            const gerNombre = gerencias.find(g => g.id_gerencia === nuevoUsuarioEquipoForm.id_gerencia)?.des_gerencia || 'N/A';
+            const eqNombre = equipos.find(e => e.id_equipo === nuevoUsuarioEquipoForm.id_equipo)?.desc_equipo || 'N/A';
+            try {
+              await notificacionesService.enviarUsuarioCreado({
+                email: nuevoUsuarioEquipoForm.email.trim(),
+                nombreUsuario: `${nombreN} ${apellidoN}`,
+                contrasena: passwordResp,
+                gerenciaNombre: gerNombre,
+                equipoNombre: eqNombre,
+              });
+            } catch (e) {
+              console.warn('No se pudo enviar correo de usuario creado:', e);
+            }
+
+            setCreatedUserData({ email: nuevoUsuarioEquipoForm.email.trim(), password: passwordResp });
+            setIsUsuarioEquipoModalOpen(false);
+            setIsSuccessModalOpen(true);
+            await loadUsuariosExistentes();
+          } catch (err: any) {
+            setAsignarUsuarioError(err?.message || 'Error al crear usuario');
+          } finally {
+            setIsSubmitting(false);
+          }
+        }} className="space-y-4">
+          {asignarUsuarioError && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded">{asignarUsuarioError}</div>
+          )}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Nombre *</label>
+              <input type="text" className="w-full px-3 py-2 border-2 border-sedapal-cyan rounded-lg text-sedapal-blue focus:ring-2 focus:ring-sedapal-lightBlue focus:border-sedapal-lightBlue" value={nuevoUsuarioEquipoForm.nombre}
+                onChange={e => setNuevoUsuarioEquipoForm({ ...nuevoUsuarioEquipoForm, nombre: e.target.value })} required />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Apellido *</label>
+              <input type="text" className="w-full px-3 py-2 border-2 border-sedapal-cyan rounded-lg text-sedapal-blue focus:ring-2 focus:ring-sedapal-lightBlue focus:border-sedapal-lightBlue" value={nuevoUsuarioEquipoForm.apellido}
+                onChange={e => setNuevoUsuarioEquipoForm({ ...nuevoUsuarioEquipoForm, apellido: e.target.value })} required />
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Correo *</label>
+              <input type="email" className="w-full px-3 py-2 border-2 border-sedapal-cyan rounded-lg text-sedapal-blue focus:ring-2 focus:ring-sedapal-lightBlue focus:border-sedapal-lightBlue" value={nuevoUsuarioEquipoForm.email}
+                onChange={e => setNuevoUsuarioEquipoForm({ ...nuevoUsuarioEquipoForm, email: e.target.value })} required />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Gerencia *</label>
+              <select className="w-full px-3 py-2 border-2 border-sedapal-cyan rounded-lg bg-white text-sedapal-blue focus:ring-2 focus:ring-sedapal-lightBlue focus:border-sedapal-lightBlue" value={nuevoUsuarioEquipoForm.id_gerencia}
+                onChange={(e) => {
+                  const idg = parseInt(e.target.value);
+                  setNuevoUsuarioEquipoForm({ ...nuevoUsuarioEquipoForm, id_gerencia: idg, id_equipo: 0 });
+                  const filtered = equipos.filter(eq => eq.id_gerencia === idg);
+                  setEquiposFiltradosUE(filtered);
+                }} required>
+                <option value={0}>Selecciona una gerencia</option>
+                {gerencias.map(g => (
+                  <option key={g.id_gerencia} value={g.id_gerencia}>{g.des_gerencia}{g.abrev ? ` - ${g.abrev}` : ''}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Equipo *</label>
+              <select className="w-full px-3 py-2 border-2 border-sedapal-cyan rounded-lg bg-white text-sedapal-blue focus:ring-2 focus:ring-sedapal-lightBlue focus:border-sedapal-lightBlue disabled:bg-gray-100" value={nuevoUsuarioEquipoForm.id_equipo}
+                onChange={(e) => setNuevoUsuarioEquipoForm({ ...nuevoUsuarioEquipoForm, id_equipo: parseInt(e.target.value) })} required disabled={equiposFiltradosUE.length === 0}>
+                <option value={0}>Selecciona un equipo</option>
+                {equiposFiltradosUE.map(eq => (
+                  <option key={eq.id_equipo} value={eq.id_equipo}>{eq.desc_equipo}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="flex justify-end space-x-3 pt-2">
+            <button type="button" onClick={() => setIsUsuarioEquipoModalOpen(false)} className="px-4 py-2 border-2 border-sedapal-cyan text-sedapal-blue rounded-lg hover:bg-sedapal-cyan hover:text-white transition">Cancelar</button>
+            <button type="submit" disabled={isSubmitting} className="px-4 py-2 bg-sedapal-lightBlue text-white rounded-lg hover:bg-sedapal-blue transition disabled:opacity-50">{isSubmitting ? 'Creando...' : 'Crear Usuario'}</button>
+          </div>
+        </form>
+      </Modal>
 
       {/* Modal: Credenciales Creadas */}
       <Modal

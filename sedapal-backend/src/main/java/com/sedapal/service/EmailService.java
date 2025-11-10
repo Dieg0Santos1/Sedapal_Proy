@@ -74,7 +74,7 @@ public class EmailService {
                 <style>
                     body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
                     .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-                    .header { background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); 
+                    .header { background: linear-gradient(135deg, #0284c7 0%%, #0369a1 100%%); 
                              color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
                     .content { background: #ffffff; padding: 30px; border: 1px solid #e5e7eb; }
                     .credentials-box { background: #f3f4f6; padding: 20px; border-radius: 8px; 
@@ -110,10 +110,6 @@ public class EmailService {
                             <p><strong>👤 Rol:</strong> %s</p>
                         </div>
                         
-                        <div style="text-align: center;">
-                            <a href="%s" class="btn">Iniciar Sesión</a>
-                        </div>
-                        
                         <div class="warning">
                             <p><strong>⚠️ IMPORTANTE:</strong></p>
                             <p>• Esta contraseña es temporal y debe ser guardada en un lugar seguro</p>
@@ -128,13 +124,14 @@ public class EmailService {
                     
                     <div class="footer">
                         <p>Este es un correo automático, por favor no responder.</p>
-                        <p>© %d SEDAPAL - Sistema de Gestión</p>
+                        <p>© %d SEDAPAL - Sistema de Gestión Institucional</p>
+                        %s
                     </div>
                 </div>
             </body>
             </html>
-            """.formatted(nombreCompleto, email, contrasena, rolTexto, loginUrl, 
-                         java.time.Year.now().getValue());
+            """.formatted(nombreCompleto, email, contrasena, rolTexto, 
+                         java.time.Year.now().getValue(), construirFooterLogo());
     }
 
     /**
@@ -193,7 +190,7 @@ public class EmailService {
                 <style>
                     body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
                     .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-                    .header { background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); 
+                    .header { background: linear-gradient(135deg, #0284c7 0%%, #0369a1 100%%); 
                              color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
                     .content { background: #ffffff; padding: 30px; border: 1px solid #e5e7eb; }
                     .activity-box { background: #f0f9ff; padding: 20px; border-radius: 8px; 
@@ -253,10 +250,6 @@ public class EmailService {
                             </div>
                         </div>
                         
-                        <div style="text-align: center;">
-                            <a href="%s" class="btn">Ir al Sistema</a>
-                        </div>
-                        
                         <div class="info-box">
                             <p><strong>💡 Qué hacer ahora:</strong></p>
                             <p>• Inicia sesión en el sistema</p>
@@ -271,13 +264,14 @@ public class EmailService {
                     
                     <div class="footer">
                         <p>Este es un correo automático, por favor no responder.</p>
-                        <p>© %d SEDAPAL - Sistema de Gestión</p>
+                        <p>© %d SEDAPAL - Sistema de Gestión Institucional</p>
+                        %s
                     </div>
                 </div>
             </body>
             </html>
             """.formatted(nombreUsuario, nombreActividad, sistemaAbrev, equipoNombre, 
-                         trimestre, fechaFormateada, loginUrl, java.time.Year.now().getValue());
+                         trimestre, fechaFormateada, java.time.Year.now().getValue(), construirFooterLogo());
     }
 
     /**
@@ -327,7 +321,7 @@ public class EmailService {
                 <style>
                     body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
                     .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-                    .header { background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); 
+                    .header { background: linear-gradient(135deg, #0284c7 0%%, #0369a1 100%%); 
                              color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
                     .content { background: #ffffff; padding: 30px; border: 1px solid #e5e7eb; }
                     .credentials-box { background: #f3f4f6; padding: 20px; border-radius: 8px; 
@@ -399,10 +393,6 @@ public class EmailService {
                             </div>
                         </div>
                         
-                        <div style="text-align: center;">
-                            <a href="%s" class="btn">Iniciar Sesión</a>
-                        </div>
-                        
                         <div class="warning">
                             <p><strong>⚠️ IMPORTANTE:</strong></p>
                             <p>• Guarda tus credenciales en un lugar seguro</p>
@@ -418,14 +408,15 @@ public class EmailService {
                     
                     <div class="footer">
                         <p>Este es un correo automático, por favor no responder.</p>
-                        <p>© %d SEDAPAL - Sistema de Gestión</p>
+                        <p>© %d SEDAPAL - Sistema de Gestión Institucional</p>
+                        %s
                     </div>
                 </div>
             </body>
             </html>
             """.formatted(nombreCompleto, email, contrasena, nombreActividad, sistemaAbrev, 
-                         equipoNombre, trimestre, fechaFormateada, loginUrl, 
-                         java.time.Year.now().getValue());
+                         equipoNombre, trimestre, fechaFormateada, 
+                         java.time.Year.now().getValue(), construirFooterLogo());
     }
 
     /**
@@ -445,5 +436,216 @@ public class EmailService {
             log.error("❌ Error al enviar email simple: {}", e.getMessage());
             throw new RuntimeException("Error al enviar email: " + e.getMessage());
         }
+    }
+
+    // ================= Nuevos correos de notificación =================
+    public void enviarNotificacionUsuarioCumplio(String adminEmail, String usuarioNombre, String usuarioEmail,
+                                                String nombreActividad, String entregableNombre, String sistemaAbrev,
+                                                String equipoNombre, String fechaMaxima) {
+        try {
+            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+            helper.setFrom(fromEmail);
+            helper.setTo(adminEmail);
+            helper.setSubject("🕓 Revisión requerida: " + nombreActividad);
+            String html = construirHtmlNotificacionUsuarioCumplio(usuarioNombre, usuarioEmail, nombreActividad,
+                    entregableNombre, sistemaAbrev, equipoNombre, fechaMaxima);
+            helper.setText(html, true);
+            mailSender.send(message);
+            log.info("✅ Notificación enviada al admin {} por cumplimiento de {}", adminEmail, usuarioEmail);
+        } catch (MessagingException e) {
+            throw new RuntimeException("Error al enviar notificación: " + e.getMessage());
+        }
+    }
+
+    public void enviarNotificacionConforme(java.util.List<String> usuariosDestino,
+                                           java.util.List<String> superadminsDestino,
+                                           String nombreActividad, String entregableNombre,
+                                           String sistemaAbrev, String equipoNombre, String fechaMaxima) {
+        try {
+            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+            helper.setFrom(fromEmail);
+            java.util.List<String> destinatarios = new java.util.ArrayList<>();
+            if (usuariosDestino != null) destinatarios.addAll(usuariosDestino);
+            if (superadminsDestino != null) destinatarios.addAll(superadminsDestino);
+            helper.setTo(destinatarios.toArray(String[]::new));
+            helper.setSubject("✅ Actividad validada: " + nombreActividad);
+            String html = construirHtmlNotificacionConforme(nombreActividad, entregableNombre, sistemaAbrev, equipoNombre, fechaMaxima);
+            helper.setText(html, true);
+            mailSender.send(message);
+            log.info("✅ Notificación de conforme enviada a {} destinatarios", destinatarios.size());
+        } catch (MessagingException e) {
+            throw new RuntimeException("Error al enviar notificación: " + e.getMessage());
+        }
+    }
+
+    // ================= Usuario creado con equipo/gerencia =================
+    public void enviarUsuarioCreado(String email, String nombreUsuario, String contrasena,
+                                    String gerenciaNombre, String equipoNombre) {
+        try {
+            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+            helper.setFrom(fromEmail);
+            helper.setTo(email);
+            helper.setSubject("👤 Usuario creado - Accesos y pertenencia");
+            String html = construirHtmlUsuarioCreado(nombreUsuario, email, contrasena, gerenciaNombre, equipoNombre);
+            helper.setText(html, true);
+            mailSender.send(message);
+            log.info("✅ Notificación de usuario creado enviada a {}", email);
+        } catch (MessagingException e) {
+            throw new RuntimeException("Error al enviar notificación: " + e.getMessage());
+        }
+    }
+
+    private String construirFooterLogo() {
+        // Logo oficial SEDAPAL (PNG)
+        // Usar URL pública proporcionada por el cliente
+        String logoUrl = "https://www.google.com/url?sa=i&url=https%3A%2F%2Fwww.fonafe.gob.pe%2Fempresasdelacorporacion%2Fsedapalsa&psig=AOvVaw09E8twOe-55TXxJ0Fwbx67&ust=1762608395663000&source=images&cd=vfe&opi=89978449&ved=0CBUQjRxqFwoTCICp1Y2S4JADFQAAAAAdAAAAABAE";
+        return """
+            <div style=\"text-align:center;margin-top:24px;\"> 
+              <img src=\"%s\" alt=\"SEDAPAL\" style=\"height:50px;opacity:0.95;display:inline-block\"/>
+            </div>
+        """.formatted(logoUrl);
+    }
+
+    private String construirHtmlUsuarioCreado(String nombreUsuario, String email, String contrasena,
+                                              String gerenciaNombre, String equipoNombre) {
+        return """
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset=\"UTF-8\" />
+          <style>
+            body { font-family: Arial, sans-serif; color:#111827; }
+            .header { background: linear-gradient(135deg, #0284c7 0%%, #0369a1 100%%); color:#fff; padding:24px; border-radius:10px 10px 0 0; text-align:center }
+            .content { background:#fff; border:1px solid #e5e7eb; border-top:none; padding:24px; border-radius:0 0 10px 10px }
+            .credentials { background:#f3f4f6; border-left:4px solid #0284c7; padding:16px; border-radius:8px; margin:16px 0 }
+            .assignment { background:#ecfeff; border-left:4px solid #06b6d4; padding:16px; border-radius:8px; margin:16px 0 }
+            .row { display:flex; justify-content:space-between; border-bottom:1px solid #e5e7eb; padding:8px 0 }
+            .row:last-child { border-bottom:none }
+            .label { color:#6b7280 }
+            .value { font-weight:600; color:#111827 }
+            .footer { text-align:center; color:#6b7280; font-size:12px; margin-top:16px }
+          </style>
+        </head>
+        <body>
+          <div class=\"header\">
+            <h2 style=\"margin:0\">👤 Usuario creado</h2>
+            <div style=\"opacity:.9;font-size:12px\">Sistema de Gestión SEDAPAL</div>
+          </div>
+          <div class=\"content\">
+            <p>Hola <strong>%s</strong>,</p>
+            <p>Tu cuenta ha sido creada. Estos son tus accesos y tu pertenencia organizacional:</p>
+            <div class=\"credentials\">
+              <div class=\"row\"><span class=\"label\">📧 Email</span><span class=\"value\">%s</span></div>
+              <div class=\"row\"><span class=\"label\">🔑 Contraseña</span><span class=\"value\">%s</span></div>
+              <div class=\"row\"><span class=\"label\">👤 Rol</span><span class=\"value\">Usuario</span></div>
+            </div>
+            <div class=\"assignment\">
+              <div class=\"row\"><span class=\"label\">🏢 Gerencia</span><span class=\"value\">%s</span></div>
+              <div class=\"row\"><span class=\"label\">👥 Equipo</span><span class=\"value\">%s</span></div>
+            </div>
+            <div class=\"footer\">%s</div>
+          </div>
+        </body>
+        </html>
+        """.formatted(nombreUsuario, email, contrasena, gerenciaNombre, equipoNombre, construirFooterLogo());
+    }
+
+    public void enviarAsignacionSistema(String email, String nombreAdmin, String sistemaAbrev, String sistemaNombre) {
+        try {
+            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+            helper.setFrom(fromEmail);
+            helper.setTo(email);
+            helper.setSubject("🛠️ Sistema asignado: " + (sistemaAbrev != null ? sistemaAbrev : ""));
+            String html = construirHtmlAsignacionSistema(nombreAdmin, sistemaAbrev, sistemaNombre);
+            helper.setText(html, true);
+            mailSender.send(message);
+            log.info("✅ Notificación de asignación de sistema enviada a {}", email);
+        } catch (MessagingException e) {
+            throw new RuntimeException("Error al enviar notificación: " + e.getMessage());
+        }
+    }
+
+    private String construirHtmlAsignacionSistema(String nombreAdmin, String sistemaAbrev, String sistemaNombre) {
+        return """
+        <div style=\"font-family:Arial,sans-serif;color:#111827\"> 
+          <div style=\"background:linear-gradient(135deg,#0284c7 0%%,#0369a1 100%%);color:#fff;padding:24px;border-radius:10px 10px 0 0;text-align:center\">
+            <h2 style=\"margin:0;font-size:22px\">🛠️ Asignación de Sistema</h2>
+            <div style=\"opacity:.9;font-size:12px\">Sistema de Gestión SEDAPAL</div>
+          </div>
+          <div style=\"background:#ffffff;padding:24px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 10px 10px\">
+            <p>Hola <strong>%s</strong>,</p>
+            <p>Se te ha asignado el siguiente sistema:</p>
+            <div style=\"background:#ecfeff;border-left:4px solid #06b6d4;padding:16px;border-radius:8px;margin:16px 0\">
+              <div style=\"display:flex;justify-content:space-between;border-bottom:1px solid #e5e7eb;padding:8px 0\"><span style=\"color:#6b7280\">Sigla</span><span style=\"font-weight:600;color:#111827\">%s</span></div>
+              <div style=\"display:flex;justify-content:space-between;padding:8px 0\"><span style=\"color:#6b7280\">Nombre</span><span style=\"font-weight:600;color:#111827\">%s</span></div>
+            </div>
+            %s
+          </div>
+        </div>
+        """.formatted(nombreAdmin, sistemaAbrev != null ? sistemaAbrev : "N/A", sistemaNombre != null ? sistemaNombre : "Sistema", construirFooterLogo());
+    }
+
+    private String construirHtmlNotificacionUsuarioCumplio(String usuarioNombre, String usuarioEmail,
+                                                           String nombreActividad, String entregableNombre,
+                                                           String sistemaAbrev, String equipoNombre, String fechaMaxima) {
+        String loginUrl = frontendUrl + "/login";
+        String fecha = fechaMaxima != null ? fechaMaxima : "No especificada";
+        return """
+        <div style=\"font-family:Arial,sans-serif;color:#111827\"> 
+<div style=\"background:linear-gradient(135deg,#0284c7 0%%,#0369a1 100%%);color:#fff;padding:24px;border-radius:10px 10px 0 0;text-align:center\">
+            <h2 style=\"margin:0;font-size:22px\">🕓 Revisión requerida</h2>
+            <div style=\"opacity:.9;font-size:12px\">Sistema de Gestión SEDAPAL</div>
+          </div>
+          <div style=\"background:#ffffff;padding:24px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 10px 10px\">
+            <p>El usuario <strong>%s</strong> (<a href=\"mailto:%s\">%s</a>) marcó su actividad como <strong>Cumplió</strong>.</p>
+            <div style=\"background:#f0f9ff;border-left:4px solid #0284c7;padding:16px;border-radius:8px;margin:16px 0\">
+              <div style=\"font-weight:600;color:#0369a1;font-size:16px;margin-bottom:8px\">📌 %s</div>
+              <div style=\"display:flex;justify-content:space-between;border-bottom:1px solid #e5e7eb;padding:8px 0\"><span style=\"color:#6b7280\">📑 Entregable:</span><span style=\"font-weight:600;color:#111827\">%s</span></div>
+              <div style=\"display:flex;justify-content:space-between;border-bottom:1px solid #e5e7eb;padding:8px 0\"><span style=\"color:#6b7280\">📊 Sistema:</span><span style=\"font-weight:600;color:#111827\">%s</span></div>
+              <div style=\"display:flex;justify-content:space-between;border-bottom:1px solid #e5e7eb;padding:8px 0\"><span style=\"color:#6b7280\">👥 Equipo:</span><span style=\"font-weight:600;color:#111827\">%s</span></div>
+              <div style=\"display:flex;justify-content:space-between;padding:8px 0\"><span style=\"color:#6b7280\">⏰ Fecha máxima:</span><span style=\"font-weight:600;color:#111827\">%s</span></div>
+            </div>
+            <div style=\"background:#fff7ed;border-left:4px solid #f59e0b;padding:12px;border-radius:4px;color:#92400e;font-size:13px\">Revisa el entregable y si corresponde, marca <strong>Conforme</strong>.</div>
+            %s
+          </div>
+        </div>
+        """.formatted(usuarioNombre, usuarioEmail, usuarioEmail, nombreActividad,
+                entregableNombre != null ? entregableNombre : "No especificado",
+                sistemaAbrev != null ? sistemaAbrev : "N/A",
+                equipoNombre != null ? equipoNombre : "N/A",
+                fecha, construirFooterLogo());
+    }
+
+    private String construirHtmlNotificacionConforme(String nombreActividad, String entregableNombre,
+                                                     String sistemaAbrev, String equipoNombre, String fechaMaxima) {
+        String loginUrl = frontendUrl + "/login";
+        String fecha = fechaMaxima != null ? fechaMaxima : "No especificada";
+        return """
+        <div style=\"font-family:Arial,sans-serif;color:#111827\"> 
+<div style=\"background:linear-gradient(135deg,#10b981 0%%,#059669 100%%);color:#fff;padding:24px;border-radius:10px 10px 0 0;text-align:center\">
+            <h2 style=\"margin:0;font-size:22px\">✅ Actividad validada</h2>
+            <div style=\"opacity:.9;font-size:12px\">Sistema de Gestión SEDAPAL</div>
+          </div>
+          <div style=\"background:#ffffff;padding:24px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 10px 10px\">
+            <p>La actividad fue revisada y <strong>validada (Conforme)</strong>. El estado pasó a <strong>Completado</strong>.</p>
+            <div style=\"background:#ecfdf5;border-left:4px solid #10b981;padding:16px;border-radius:8px;margin:16px 0\">
+              <div style=\"font-weight:600;color:#047857;font-size:16px;margin-bottom:8px\">📌 %s</div>
+              <div style=\"display:flex;justify-content:space-between;border-bottom:1px solid #e5e7eb;padding:8px 0\"><span style=\"color:#6b7280\">📑 Entregable:</span><span style=\"font-weight:600;color:#111827\">%s</span></div>
+              <div style=\"display:flex;justify-content:space-between;border-bottom:1px solid #e5e7eb;padding:8px 0\"><span style=\"color:#6b7280\">📊 Sistema:</span><span style=\"font-weight:600;color:#111827\">%s</span></div>
+              <div style=\"display:flex;justify-content:space-between;border-bottom:1px solid #e5e7eb;padding:8px 0\"><span style=\"color:#6b7280\">👥 Equipo:</span><span style=\"font-weight:600;color:#111827\">%s</span></div>
+              <div style=\"display:flex;justify-content:space-between;padding:8px 0\"><span style=\"color:#6b7280\">⏰ Fecha máxima:</span><span style=\"font-weight:600;color:#111827\">%s</span></div>
+            </div>
+            %s
+          </div>
+        </div>
+        """.formatted(nombreActividad,
+                entregableNombre != null ? entregableNombre : "No especificado",
+                sistemaAbrev != null ? sistemaAbrev : "N/A",
+                equipoNombre != null ? equipoNombre : "N/A",
+                fecha, construirFooterLogo());
     }
 }
