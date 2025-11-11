@@ -978,7 +978,7 @@ export const notificacionesService = {
   },
 
   // Nuevo: Usuario creado con equipo/gerencia
-  async enviarUsuarioCreado(payload: {
+  async createUsuarioBackend(payload: {
     email: string;
     nombreUsuario: string;
     contrasena: string;
@@ -1031,7 +1031,14 @@ export const usuariosService = {
       const errText = await response.text();
       throw new Error(errText || 'Error al crear administrador');
     }
-    return response.json();
+    // Intentar parsear JSON; si no hay cuerpo, retornar el usuario por correo como fallback
+    try {
+      return await response.json();
+    } catch {
+      const fallback = await usuariosService.getByEmail(admin.email);
+      if (fallback) return fallback as any;
+      throw new Error('Administrador creado pero no se pudo recuperar la respuesta');
+    }
   },
 
   // Crear usuario (vía backend: genera contraseña y envía credenciales por email)
@@ -1049,7 +1056,18 @@ export const usuariosService = {
       const errText = await response.text();
       throw new Error(errText || 'Error al crear usuario');
     }
-    return response.json();
+    // Algunos backends devuelven 201 sin body o texto; ser tolerantes
+    try {
+      const ct = response.headers.get('content-type') || '';
+      if (ct.includes('application/json')) {
+        return await response.json();
+      }
+      // Si no es JSON, intentar leer texto y luego buscar el usuario por email
+    } catch {}
+    const fallback = await usuariosService.getByEmail(payload.email);
+    if (fallback) return fallback as any;
+    // Último intento: no romper el flujo
+    return { id_usuario: 0, nombre: payload.nombre, apellido: payload.apellido, email: payload.email, rol: 'usuario', estado: true } as any;
   },
   
   // Crear usuario con actividad (backend envía credenciales + detalle de actividad)
