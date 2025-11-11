@@ -978,7 +978,7 @@ export const notificacionesService = {
   },
 
   // Nuevo: Usuario creado con equipo/gerencia
-  async createUsuarioBackend(payload: {
+  async enviarUsuarioCreado(payload: {
     email: string;
     nombreUsuario: string;
     contrasena: string;
@@ -1260,6 +1260,12 @@ export const usuariosService = {
 export const usuariosEquiposService = {
   // Vincular un usuario a una gerencia y equipo (único por usuario)
   async assign(idUsuario: number, idGerencia: number, idEquipo: number): Promise<{ id: number; id_usuario: number; id_gerencia: number; id_equipo: number }>{
+    console.log('📦 ANTES DE UPSERT - Datos a insertar:', {
+      id_usuario: idUsuario,
+      id_gerencia: idGerencia,
+      id_equipo: idEquipo
+    });
+    
     const { data, error } = await supabase
       .from('tb_usuario_equipo')
       .upsert([
@@ -1268,7 +1274,12 @@ export const usuariosEquiposService = {
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error('❌ ERROR en upsert:', error);
+      throw error;
+    }
+    
+    console.log('✅ DESPUÉS DE UPSERT - Datos guardados:', data);
     return data as any;
   },
 
@@ -1424,27 +1435,48 @@ export const referenciasService = {
   async equipoTieneActividades(idEquipo: number): Promise<boolean> {
     const { data, error } = await supabase
       .from('tb_as_sis_act')
-      .select('id', { count: 'exact', head: true })
-      .eq('id_equipo', idEquipo);
-    if (error) throw error;
-    // Si la librería no devuelve count con head: true, realizar fallback simple
-    if ((data as any) === null) {
-      const { data: rows } = await supabase
-        .from('tb_as_sis_act')
-        .select('id')
-        .eq('id_equipo', idEquipo)
-        .limit(1);
-      return !!(rows && rows.length > 0);
+      .select('id')
+      .eq('id_equipo', idEquipo)
+      .limit(1);
+    
+    if (error) {
+      console.error('Error al verificar actividades del equipo:', error);
+      // Si hay error, BLOQUEAR la desactivación por seguridad
+      throw new Error('No se puede verificar si el equipo tiene actividades. Por seguridad, la operación fue bloqueada.');
     }
-    // count no está en data; sin head tendríamos que implementar distinto. Consideramos fallback ya cubierto.
-    return true; // con head, si no hay error asumimos existencia; el fallback cubre caso real.
+    
+    return !!(data && data.length > 0);
   },
+  
+  async equipoTieneUsuarios(idEquipo: number): Promise<boolean> {
+    const { data, error } = await supabase
+      .from('tb_usuario_equipo')
+      .select('id')
+      .eq('id_equipo', idEquipo)
+      .limit(1);
+    
+    if (error) {
+      console.error('Error al verificar usuarios del equipo:', error);
+      // Si hay error, BLOQUEAR la desactivación por seguridad
+      throw new Error('No se puede verificar si el equipo tiene usuarios. Por seguridad, la operación fue bloqueada.');
+    }
+    
+    return !!(data && data.length > 0);
+  },
+  
   async gerenciaTieneActividades(idGerencia: number): Promise<boolean> {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('tb_as_sis_act')
       .select('id')
       .eq('id_gerencia', idGerencia)
       .limit(1);
+    
+    if (error) {
+      console.error('Error al verificar actividades de la gerencia:', error);
+      // Si hay error, BLOQUEAR la desactivación por seguridad
+      throw new Error('No se puede verificar si la gerencia tiene actividades. Por seguridad, la operación fue bloqueada.');
+    }
+    
     return !!(data && data.length > 0);
   },
   async entregableTieneActividades(idEntregable: number): Promise<boolean> {

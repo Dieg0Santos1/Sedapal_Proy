@@ -1660,7 +1660,7 @@ export default function MisActividadesAdmin({ idAdmin }: MisActividadesAdminProp
             const creado = await usuariosService.createUsuarioBackend({
               nombre: nombreN,
               apellido: apellidoN,
-              email: usuarioFormData.email.trim(),
+              email: nuevoUsuarioEquipoForm.email.trim(),
               contrasena: contrasenaGenerada,
             });
             const userId = (creado as any).id ?? (creado as any).id_usuario; // backend retorna 'id'
@@ -1668,6 +1668,11 @@ export default function MisActividadesAdmin({ idAdmin }: MisActividadesAdminProp
 
             // Vincular al equipo seleccionado
             if (!userId) throw new Error('No se pudo obtener el ID del nuevo usuario');
+            console.log('🔍 DEBUG - Asignando equipo:', {
+              userId,
+              id_gerencia: nuevoUsuarioEquipoForm.id_gerencia,
+              id_equipo: nuevoUsuarioEquipoForm.id_equipo
+            });
             await usuariosEquiposService.assign(userId, nuevoUsuarioEquipoForm.id_gerencia, nuevoUsuarioEquipoForm.id_equipo);
 
             // Notificar credenciales + pertenencia (siguiendo estructura de notificaciones)

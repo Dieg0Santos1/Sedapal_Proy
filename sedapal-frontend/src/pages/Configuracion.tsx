@@ -96,9 +96,17 @@ export default function Configuracion() {
       const activar = !bool(e.estado);
       const id = e.id_equipo || e.id || 0;
       if (!activar) {
-        const ligado = await referenciasService.equipoTieneActividades(id);
-        if (ligado) {
+        // Verificar si tiene actividades vinculadas
+        const tieneActividades = await referenciasService.equipoTieneActividades(id);
+        if (tieneActividades) {
           setAlertMsg(`No se puede desactivar el equipo "${e.desc_equipo || e.nombre_equipo}" porque está vinculado a una o más actividades.`);
+          setAlertOpen(true);
+          return;
+        }
+        // Verificar si tiene usuarios asignados
+        const tieneUsuarios = await referenciasService.equipoTieneUsuarios(id);
+        if (tieneUsuarios) {
+          setAlertMsg(`No se puede desactivar el equipo "${e.desc_equipo || e.nombre_equipo}" porque tiene usuarios asignados.`);
           setAlertOpen(true);
           return;
         }
@@ -107,7 +115,8 @@ export default function Configuracion() {
       const refreshed = await (equiposService.getAllAdmin ? equiposService.getAllAdmin() : equiposService.getAll());
       setEquipos(refreshed);
     } catch (err: any) {
-      setError(err?.message || 'Error al cambiar estado del equipo');
+      setAlertMsg(err?.message || 'Error al cambiar estado del equipo');
+      setAlertOpen(true);
     }
   };
 
@@ -126,7 +135,8 @@ export default function Configuracion() {
       const refreshed = await (gerenciasService.getAllAdmin ? gerenciasService.getAllAdmin() : gerenciasService.getAll());
       setGerencias(refreshed);
     } catch (err: any) {
-      setError(err?.message || 'Error al cambiar estado de la gerencia');
+      setAlertMsg(err?.message || 'Error al cambiar estado de la gerencia');
+      setAlertOpen(true);
     }
   };
 
@@ -145,7 +155,8 @@ export default function Configuracion() {
       const refreshed = await ((tiposEntregablesService as any).getAllAdmin ? (tiposEntregablesService as any).getAllAdmin() : tiposEntregablesService.getAll());
       setEntregables(refreshed);
     } catch (err: any) {
-      setError(err?.message || 'Error al cambiar estado del entregable');
+      setAlertMsg(err?.message || 'Error al cambiar estado del entregable');
+      setAlertOpen(true);
     }
   };
 
