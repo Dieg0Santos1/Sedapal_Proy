@@ -1660,7 +1660,8 @@ export default function MisActividadesAdmin({ idAdmin }: MisActividadesAdminProp
             const creado = await usuariosService.createUsuarioBackend({
               nombre: nombreN,
               apellido: apellidoN,
-              email: nuevoUsuarioEquipoForm.email.trim(),
+              email: usuarioFormData.email.trim(),
+              contrasena: contrasenaGenerada,
             });
             const userId = (creado as any).id ?? (creado as any).id_usuario; // backend retorna 'id'
             const passwordResp = (creado as any).contrasena || contrasenaGenerada; // fallback por si el backend no la retorna

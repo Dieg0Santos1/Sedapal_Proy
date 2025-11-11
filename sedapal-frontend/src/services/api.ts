@@ -1046,15 +1046,45 @@ export const usuariosService = {
     nombre: string;
     apellido: string;
     email: string;
+    contrasena?: string; // opcional: para fallback directo a BD
   }): Promise<Usuario & { contrasena?: string }> {
     const response = await fetch(`${BACKEND_URL}/api/usuarios/usuario`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      body: JSON.stringify({ nombre: payload.nombre, apellido: payload.apellido, email: payload.email })
     });
     if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(errText || 'Error al crear usuario');
+      // Fallback: crear directo en Supabase usando la contraseña proporcionada (si hay)
+      try {
+        const pass = payload.contrasena || `User${Math.random().toString(36).slice(2, 8)}`;
+        const emailNorm = (payload.email || '').trim();
+        const { data: nuevoUsuario, error } = await supabase
+          .from('tb_usuarios')
+          .insert([{
+            nombre: payload.nombre,
+            apellido: payload.apellido,
+            email: emailNorm,
+            contrasena: pass,
+            rol: 'usuario',
+            estado: true,
+          }])
+          .select()
+          .single();
+        if (error) throw error;
+        // Si por alguna razón el email quedó vacío, forzar actualización inmediata
+        if (nuevoUsuario && (!nuevoUsuario.email || nuevoUsuario.email === '' || nuevoUsuario.email === null)) {
+          try {
+            await supabase
+              .from('tb_usuarios')
+              .update({ email: emailNorm })
+              .eq('id_usuario', (nuevoUsuario as any).id_usuario);
+          } catch {}
+        }
+        return { ...(nuevoUsuario as any), contrasena: pass } as any;
+      } catch (fallbackErr: any) {
+        const errText = await response.text().catch(() => '');
+        throw new Error(errText || fallbackErr?.message || 'Error al crear usuario');
+      }
     }
     // Algunos backends devuelven 201 sin body o texto; ser tolerantes
     try {
